@@ -29,6 +29,7 @@
     <select id="f-modelo">
       <option value="paralelo">Paralelo 50/50</option>
       <option value="compensatorio">Compensatório (alemão)</option>
+      <option value="lista">Só lista fechada (sem distritos)</option>
     </select>
   </label>
   <label>Cadeiras por estado
@@ -50,11 +51,17 @@
       <option value="antiga">Excedentes + nivelamento</option>
     </select>
   </label>
-  <label class="faixa">Fidelidade ao partido α <output id="o-alfa"></output>
+  <label class="faixa" title="Fração do voto dos colegas de partido que segue o candidato do distrito">Fidelidade ao partido α <output id="o-alfa"></output>
     <input id="f-alfa" type="range" min="0.5" max="1" step="0.05">
   </label>
-  <label class="faixa">Voto útil β <output id="o-beta"></output>
-    <input id="f-beta" type="range" min="0" max="0.5" step="0.05">
+  <label class="faixa" title="Quanto o eleitor de um puxador deixa de seguir um candidato mais fraco que ele">Peso do candidato γ <output id="o-gama"></output>
+    <input id="f-gama" type="range" min="0" max="1" step="0.05">
+  </label>
+  <label class="faixa" title="Do 3º lugar para baixo, fração que migra para o mais bem colocado do próprio campo">Voto útil no campo β <output id="o-beta"></output>
+    <input id="f-beta" type="range" min="0" max="1" step="0.05">
+  </label>
+  <label class="faixa" title="Do 3º lugar para baixo, fração do que resta que migra para o mais próximo dos dois primeiros">Polarização π <output id="o-pi"></output>
+    <input id="f-pi" type="range" min="0" max="1" step="0.05">
   </label>
   <button id="f-reset" class="fantasma" type="button">Voltar ao padrão</button>
 </section>
@@ -77,10 +84,11 @@
     <p class="nota">Mediana dos 50 mapas. A linha cinza vai do 10º ao 90º percentil do modelo escolhido.
       <span class="chave"><svg width="12" height="12"><circle cx="6" cy="6" r="4.5" class="m-par"/></svg> paralelo</span>
       <span class="chave"><svg width="12" height="12"><circle cx="6" cy="6" r="4" class="m-comp"/></svg> compensatório</span>
+      <span class="chave"><svg width="12" height="12"><rect x="2" y="2" width="8" height="8" class="m-lista"/></svg> só lista fechada</span>
       <span class="chave"><svg width="12" height="12"><line x1="6" x2="6" y1="0" y2="12" class="m-real"/></svg> eleitos de verdade em 2026</span></p>
     <table class="tabela" id="t-partidos">
       <thead><tr><th>Partido</th><th class="graf"></th><th class="n">Paralelo</th><th class="n">Compensatório</th>
-        <th class="n">Real 2026</th><th class="n" id="th-delta">Δ</th><th class="n">Distritos</th></tr></thead>
+        <th class="n">Lista fechada</th><th class="n">Real 2026</th><th class="n" id="th-delta">Δ</th><th class="n">Distritos</th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
@@ -94,8 +102,8 @@
     <div class="duas">
       <div><h3 id="h-uf-part"></h3><table class="tabela" id="t-uf-partidos"><thead><tr><th>Partido</th>
         <th class="n">Distritos</th><th class="n">Lista</th><th class="n">Total</th><th class="n">Real</th></tr></thead><tbody></tbody></table></div>
-      <div><h3>Distritos deste mapa</h3><table class="tabela" id="t-uf-dist"><thead><tr><th>#</th><th>Eleito</th>
-        <th class="n">Votos</th><th class="n">Margem</th><th>2º lugar</th></tr></thead><tbody></tbody></table></div>
+      <div><h3 id="h-uf-dist">Distritos deste mapa</h3><table class="tabela" id="t-uf-dist"><thead><tr><th>#</th><th>Eleito</th>
+        <th class="n">Votos</th><th class="n">Margem</th><th>2º lugar</th><th>Região</th></tr></thead><tbody></tbody></table></div>
     </div>
     <h3>Eleitos pela lista</h3>
     <p id="lista-uf" class="lista"></p>
@@ -135,7 +143,7 @@
   <div class="cartao">
     <h2 id="h-tab-dist">Distritos</h2>
     <table class="tabela" id="t-dist"><thead><tr><th>#</th><th class="n">Eleitorado</th><th class="n">Desvio</th>
-      <th class="n">População</th><th class="n">Lula 2º T</th><th>Eleito</th><th class="n">Votos</th><th class="n">Margem</th></tr></thead><tbody></tbody></table>
+      <th class="n">População</th><th class="n">Lula 2º T</th><th>Eleito</th><th class="n">Votos</th><th class="n">Margem</th><th>Cidades e bairros</th></tr></thead><tbody></tbody></table>
   </div>
 </section>
 
@@ -143,7 +151,7 @@
 <section id="aba-metodo" class="aba" hidden>
   <div class="cartao texto" id="metodo"></div>
   <div class="cartao">
-    <h2>Campo político de cada agremiação (usado só pelo voto útil)</h2>
+    <h2>Campo político de cada agremiação (usado pelo voto útil e pela polarização)</h2>
     <p class="nota">Dá para trocar aqui; o resultado é recalculado na hora. A tabela padrão está em <code>config/campos.json</code>.</p>
     <table class="tabela" id="t-campos"><thead><tr><th>Agremiação</th><th>Campo</th></tr></thead><tbody></tbody></table>
   </div>

@@ -60,7 +60,7 @@ code { font-size: 12px; background: var(--wash); padding: 1px 4px; border-radius
 .filtros, .linha { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: flex-end; margin-bottom: 14px; }
 .filtros { position: sticky; top: 0; z-index: 5; background: var(--page); padding: 8px 0 10px; border-bottom: 1px solid var(--border); }
 label { display: flex; flex-direction: column; font-size: 12px; color: var(--text-secondary); gap: 3px; }
-label.faixa { min-width: 170px; }
+label.faixa { min-width: 150px; }
 label output { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
 select, input[type=range] { font: inherit; font-size: 14px; color: var(--text-primary); }
 select { background: var(--surface-1); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
@@ -90,6 +90,8 @@ button.fantasma:hover, button.fantasma.ativo { background: var(--wash); }
 .duas { display: grid; grid-template-columns: 1fr 1.5fr; gap: 20px; }
 @media (max-width: 860px) { .duas { grid-template-columns: 1fr; } }
 .lista { font-size: 13px; color: var(--text-secondary); }
+.regiao { font-size: 12px; color: var(--text-secondary); max-width: 360px; }
+.regiao b { color: var(--text-primary); font-weight: 500; }
 
 .legenda { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--text-secondary); margin-top: 6px; align-items: center; }
 .legenda .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 5px; }
@@ -101,6 +103,7 @@ button.fantasma:hover, button.fantasma.ativo { background: var(--wash); }
 
 .m-par { fill: var(--text-primary); }
 .m-comp { fill: var(--surface-1); stroke: var(--text-primary); stroke-width: 2; }
+.m-lista { fill: var(--wash); stroke: var(--text-secondary); stroke-width: 1.5; }
 .m-real { stroke: var(--text-primary); stroke-width: 2; }
 .m-faixa { stroke: var(--axis); stroke-width: 6; stroke-linecap: round; }
 

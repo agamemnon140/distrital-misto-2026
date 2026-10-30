@@ -1,14 +1,17 @@
 /* Alocacao do distrital misto -- roda no navegador e no Node (testes de paridade).
  *
- * Por distrito (entradas [agr, T, X, cand] vindas do Python):
- *   voto(a) = T_a - (1-alfa) X_a           (X = voto nominal dos colegas que nao concorrem ali)
- *   o que sai, (1-alfa) X_a, vai para as outras agremiacoes na proporcao de T
- *   voto util: quem ficou do 3o lugar para baixo e nao lidera o proprio campo passa beta dos
- *   seus votos ao mais bem colocado do campo
+ * Por distrito (entradas [agr, T, X, cand, X_g...] vindas do Python):
+ *   voto(a) = T_a - X_a + alfa * X_a(gama)  (X = voto nominal dos colegas que nao concorrem ali;
+ *            X(gama) = a parte que segue o candidato, menor quanto mais fraco ele e diante do colega)
+ *   o que sai vai para as outras agremiacoes na proporcao de T
+ *   voto util (beta): quem ficou do 3o lugar para baixo e nao lidera o proprio campo passa beta
+ *   dos seus votos ao mais bem colocado do campo
+ *   polarizacao (pi): depois, todo mundo do 3o lugar para baixo passa pi do que restou a um dos
+ *   dois primeiros, o de campo mais proximo (esquerda-centro-direita); empate divide na proporcao
  *   vence a maior votacao (maioria simples)
  * Lista (por estado): regra brasileira 2026 (QE/QP, 80%/20%, sobras + 3a fase do STF) ou D'Hondt.
- * Modelos: paralelo (distritos + lista independentes) ou compensatorio (cota total pela lista;
- * excedentes pela regra alema de 2023 ou pela antiga, com nivelamento).
+ * Modelos: paralelo (distritos + lista independentes), compensatorio (cota total pela lista;
+ * excedentes pela regra alema de 2023 ou pela antiga, com nivelamento) ou so lista fechada.
  */
 (function (root) {
   "use strict";
@@ -39,7 +42,8 @@
     return best;
   }
 
-  function brasil(votosAgr, cands, vagas, agrId, validos) {
+  // semPiso: lista fechada -- sem voto nominal, caem as clausulas de 10% e 20% do candidato
+  function brasil(votosAgr, cands, vagas, agrId, validos, semPiso) {
     if (vagas <= 0) return [];
     const agrs = Object.keys(votosAgr).map(Number);
     if (validos === undefined) validos = agrs.reduce((s, a) => s + votosAgr[a], 0);
@@ -50,7 +54,7 @@
     const obtidas = {};
     for (const a of agrs) {
       const qp = Math.floor(votosAgr[a] / qe);
-      const leva = (por.get(a) || []).filter(c => c.v >= 0.10 * qe).slice(0, qp);
+      const leva = (por.get(a) || []).filter(c => semPiso || c.v >= 0.10 * qe).slice(0, qp);
       for (const c of leva) { eleitos.push(c.i); ja.add(c.i); }
       obtidas[a] = leva.length;
     }
@@ -60,11 +64,12 @@
     };
     while (eleitos.length < vagas) {
       const comPiso = [];
-      for (const a of agrs) if (votosAgr[a] >= 0.80 * qe && melhor(a, 0.20 * qe)) comPiso.push([votosAgr[a] / (obtidas[a] + 1), a]);
+      const piso = semPiso ? 0 : 0.20 * qe;
+      for (const a of agrs) if (votosAgr[a] >= 0.80 * qe && melhor(a, piso)) comPiso.push([votosAgr[a] / (obtidas[a] + 1), a]);
       let a, c;
       if (comPiso.length) {
         a = maxMedia(comPiso, agrId)[1];
-        c = melhor(a, 0.20 * qe);
+        c = melhor(a, piso);
       } else {
         const livres = [];
         for (const b of agrs) if (melhor(b, 0)) livres.push([votosAgr[b] / (obtidas[b] + 1), b]);
@@ -96,38 +101,66 @@
   const REGRAS = { brasil, dhondt };
 
   // ------------------------------------------------------------------ distrito
-  function distrito(flat, alfa, beta, campoDe) {
-    const n = flat.length / 4;
-    const agr = new Array(n), T = new Array(n), X = new Array(n), cand = new Array(n);
+  const POS = { esquerda: 0, centro: 1, direita: 2 };
+
+  // parte de X que segue o candidato com um gama qualquer: interpola na grade [0, ...gamas]
+  function herdado(flat, o, gama, gamas) {
+    if (!gama) return flat[o + 2];
+    const g = [0, ...gamas];
+    const x = (q) => q === 0 ? flat[o + 2] : flat[o + 3 + q];
+    for (let q = 1; q < g.length; q++) {
+      if (gama <= g[q] + 1e-9) return x(q - 1) + (x(q) - x(q - 1)) * (gama - g[q - 1]) / (g[q] - g[q - 1]);
+    }
+    return x(g.length - 1);
+  }
+
+  /* p: {alfa, beta, gama, pi, campoDe, gamas} */
+  function distrito(flat, p) {
+    const gamas = p.gamas || [];
+    const passo = 4 + gamas.length;
+    const n = flat.length / passo;
+    const agr = new Array(n), T = new Array(n), cand = new Array(n), sai = new Array(n);
     let Ttot = 0;
     for (let i = 0; i < n; i++) {
-      agr[i] = flat[4 * i]; T[i] = flat[4 * i + 1]; X[i] = flat[4 * i + 2]; cand[i] = flat[4 * i + 3];
+      const o = passo * i;
+      agr[i] = flat[o]; T[i] = flat[o + 1]; cand[i] = flat[o + 3];
+      sai[i] = flat[o + 2] - p.alfa * herdado(flat, o, p.gama || 0, gamas);
       Ttot += T[i];
     }
     const V = T.slice();
-    if (alfa < 1) {
-      const sai = X.map(x => (1 - alfa) * x);
+    if (sai.some(x => x > 0)) {
       // recebe_b = sum_{a != b} sai_a * T_b / (Ttot - T_a)
       let somaFator = 0;
       const fator = new Array(n);
       for (let a = 0; a < n; a++) { fator[a] = Ttot - T[a] > 0 ? sai[a] / (Ttot - T[a]) : 0; somaFator += fator[a]; }
       for (let b = 0; b < n; b++) V[b] = T[b] - sai[b] + T[b] * (somaFator - fator[b]);
     }
-    if (beta > 0 && n > 2) {
+    const campo = agr.map(a => a >= 0 ? p.campoDe[a] : null);
+    if (p.beta > 0 && n > 2) {
       const ordem = [...V.keys()].sort((a, b) => V[b] - V[a]);
       const lider = {};
-      for (const i of ordem) {
-        const c = agr[i] >= 0 ? campoDe[agr[i]] : null;
-        if (c && !(c in lider)) lider[c] = i;
-      }
+      for (const i of ordem) if (campo[i] && !(campo[i] in lider)) lider[campo[i]] = i;
       const V0 = V.slice();
       for (let pos = 2; pos < ordem.length; pos++) {
-        const i = ordem[pos];
-        const c = agr[i] >= 0 ? campoDe[agr[i]] : null;
+        const i = ordem[pos], c = campo[i];
         if (!c || lider[c] === i) continue;
-        const m = beta * V0[i];
+        const m = p.beta * V0[i];
         V[i] -= m;
         V[lider[c]] += m;
+      }
+    }
+    if (p.pi > 0 && n > 2) {
+      const ordem = [...V.keys()].sort((a, b) => V[b] - V[a]);
+      const a = ordem[0], b = ordem[1];
+      const V1 = V.slice();
+      const dist = (i, j) => (campo[i] && campo[j]) ? Math.abs(POS[campo[i]] - POS[campo[j]]) : 9;
+      for (let pos = 2; pos < ordem.length; pos++) {
+        const i = ordem[pos], m = p.pi * V1[i];
+        V[i] -= m;
+        const da = dist(i, a), db = dist(i, b);
+        if (da < db) V[a] += m;
+        else if (db < da) V[b] += m;
+        else { V[a] += m * V1[a] / (V1[a] + V1[b]); V[b] += m * V1[b] / (V1[a] + V1[b]); }
       }
     }
     let venc = 0;
@@ -140,7 +173,7 @@
 
   // ------------------------------------------------------------------ estado
   /* uf: {votos_agr, cands:[[nr,nome,partido,agr,votos,eleitoReal]]}; mapa: {d:[flat...]};
-   * p: {S, modelo, regra, alfa, beta, excedentes, campoDe, agrId} */
+   * p: {S, modelo, regra, alfa, beta, gama, pi, excedentes, campoDe, agrId, gamas} */
   function simulaUF(uf, mapa, p) {
     const regra = REGRAS[p.regra];
     const cands = uf.cands.map((c, i) => ({ i, nr: c[0], agr: c[3], v: c[4] }));
@@ -149,7 +182,7 @@
     const validos = Object.values(votosAgr).reduce((s, x) => s + x, 0);
     const porAgrEstado = porAgr(cands);
 
-    const dist = mapa.d.map(flat => distrito(flat, p.alfa, p.beta, p.campoDe));
+    const dist = mapa.d.map(flat => distrito(flat, p));
     // vencedor de cada distrito: candidato emparelhado; sem ninguem com base local, o mais votado
     // da agremiacao no estado que ainda nao concorre em outro distrito (candidato "generico")
     const concorrem = new Set();
@@ -170,7 +203,11 @@
     const k = dist.length;
     let eleitosDistrito = vencedores.filter(v => v.cand >= 0);
     let eleitosLista = [], tamanho = p.S, semEleito = [];
-    if (p.modelo === "paralelo") {
+    if (p.modelo === "lista") {
+      // so lista fechada, sem distritos; a ordem da lista e a votacao nominal de 2026
+      eleitosDistrito = [];
+      eleitosLista = regra(votosAgr, cands, p.S, p.agrId, validos, true);
+    } else if (p.modelo === "paralelo") {
       const ja = new Set(eleitosDistrito.map(v => v.cand));
       eleitosLista = regra(votosAgr, cands.filter(c => !ja.has(c.i)), p.S - k, p.agrId, validos);
     } else {
@@ -216,8 +253,8 @@
   }
 
   // ------------------------------------------------------------------ pais
-  /* base: base.json; dist: {UF: {k: [mapa...]}}; p: {rateio, modelo, regra, alfa, beta, excedentes,
-   * campoDe}. Devolve, por mapa m, as cadeiras por partido e por agremiacao, e o detalhe do mapa
+  /* base: base.json; dist: {UF: {k: [mapa...]}}; p: {rateio, modelo, regra, alfa, beta, gama, pi,
+   * excedentes, campoDe}. Devolve, por mapa m, as cadeiras por partido e por agremiacao, e o detalhe do mapa
    * pedido em p.detalhe. */
   function simulaPais(base, dist, p) {
     const agrId = base.agrs.map(a => a.id);
@@ -226,12 +263,12 @@
     let detalhe = null;
     for (let m = 0; m < nMapas; m++) {
       const partido = {}, agr = {}, porUF = {};
-      let total = 0, distritais = 0, semEleito = 0;
+      let total = 0, distritais = 0, semEleito = 0, top2 = 0, nd = 0;
       for (const uf of Object.keys(base.uf)) {
         const k = base.ks[uf][p.rateio];
         const r = simulaUF(base.uf[uf], dist[uf][k][m], {
           S: base.rateios[p.rateio][uf], modelo: p.modelo, regra: p.regra, alfa: p.alfa, beta: p.beta,
-          excedentes: p.excedentes, campoDe: p.campoDe, agrId,
+          gama: p.gama, pi: p.pi, excedentes: p.excedentes, campoDe: p.campoDe, agrId, gamas: base.gamas,
         });
         const cs = base.uf[uf].cands;
         const conta = (i, tipo) => {
@@ -244,10 +281,11 @@
         r.eleitosDistrito.forEach(v => conta(v.cand, "d"));
         r.eleitosLista.forEach(i => conta(i, "l"));
         distritais += r.eleitosDistrito.length;
+        for (const d of r.dist) if (d.tot > 0) { top2 += (d.V[d.venc] + d.V[d.segundo]) / d.tot; nd += 1; }
         semEleito += r.semEleito.length;
         if (p.detalhe === m) porUF[uf] = r;
       }
-      porMapa.push({ partido, agr, total, distritais, semEleito });
+      porMapa.push({ partido, agr, total, distritais, semEleito, top2: nd ? top2 / nd : 0 });
       if (p.detalhe === m) detalhe = porUF;
     }
     return { porMapa, detalhe };

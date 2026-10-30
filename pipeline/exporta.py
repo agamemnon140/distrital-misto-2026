@@ -1,10 +1,12 @@
 """Exporta os JSON da pagina (docs/dados).
 
   base.json          agremiacoes, partidos, rateios (k por UF), candidatos e totais por UF, eleitos reais
-  dist/{UF}.json     por k: para cada mapa e distrito, entradas [agr, T, X, cand] + metricas
+  dist/{UF}.json     por k: para cada mapa e distrito, entradas [agr, T, X, cand, X_g1..X_g4] + metricas
                      (T = voto da agremiacao no distrito; X = voto nominal dos colegas que NAO
-                     concorrem ali; cand = indice do candidato emparelhado, -1 se nenhum)
-  mapas/{UF}.json    por k: atribuicao tijolo -> distrito de cada mapa (string base-64) + atributos do tijolo
+                     concorrem ali; cand = indice do candidato emparelhado, -1 se nenhum; X_g = parte
+                     de X que o candidato herda com gama = GAMAS, ver matrizes.py)
+  mapas/{UF}.json    por k: atribuicao tijolo -> distrito de cada mapa (string base-64) + atributos do
+                     tijolo (municipio, eleitorado e, nos municipios quebrados, os bairros dos locais)
   geo/{UF}.json      TopoJSON dos tijolos
 """
 from __future__ import annotations
@@ -22,6 +24,8 @@ import topojson as tp
 from .caminhos import APURACAO, RAIZ, SAIDA_WEB, TRAB, UFS
 from .candidatos import CAMPO, COR, FED, SIGLA
 from .mapas import ks_da_uf
+from .matrizes import GAMAS
+from .tijolos import locais_2026
 from .rateio import RATEIOS, populacao, rateios
 
 B64 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_"
@@ -62,18 +66,18 @@ def exporta_uf(uf: str, idx_agr: dict) -> dict:
                 T = Va[j]
                 ordem = np.argsort(-T)
                 tot = T.sum()
-                linha, outros_T, outros_X = [], 0, 0
+                linha, outros = [], np.zeros(2 + len(GAMAS), dtype=np.int64)
                 for pos, a in enumerate(ordem):
                     if T[a] <= 0:
                         break
                     X = int(d["nom"][j, a] - own[j, a])
+                    Xg = [int(x) for x in d["Xg"][:, j, a]]
                     if pos < PODA_TOPO or T[a] >= PODA_FRACAO * tot:
-                        linha += [int(loc_agr[a]), int(T[a]), X, int(esc[j, a])]
+                        linha += [int(loc_agr[a]), int(T[a]), X, int(esc[j, a])] + Xg
                     else:
-                        outros_T += int(T[a])
-                        outros_X += X
-                if outros_T:
-                    linha += [-1, outros_T, outros_X, -1]
+                        outros += [int(T[a]), X] + Xg
+                if outros[0]:
+                    linha += [-1, int(outros[0]), int(outros[1]), -1] + [int(x) for x in outros[2:]]
                 distritos.append(linha)
             mapas.append({"d": distritos, "aptos": [int(x) for x in d["aptos"]],
                           "pop": [int(x) for x in d["pop"]], "lula": [int(x) for x in d["lula"]],
@@ -104,7 +108,41 @@ def geo_uf(uf: str, ins: dict) -> dict:
                        topology=True).to_dict()
     tij = {"mun": [nomes.get(n["mun"], str(n["mun"])) for n in t["nos"]],
            "aptos": [int(x) for x in ins["aptos_tij"]]}
+    # bairros (nome do TSE) dos locais de votacao de cada tijolo de municipio quebrado
+    L = locais_2026()
+    L = L[L["uf"] == uf]
+    info = dict(zip(zip(L["mun"], L["zona"], L["local"]), zip(L["bairro"], L["aptos"])))
+    nomes_b, idx_b, bai = [], {}, []
+    for n in t["nos"]:
+        soma: dict[int, int] = {}
+        if n["quebrado"]:
+            for k in n["membros"]:
+                b, ap = info.get(k, (None, 0))
+                b = bairro_limpo(b)
+                if not b:
+                    continue
+                if b not in idx_b:
+                    idx_b[b] = len(nomes_b)
+                    nomes_b.append(b)
+                soma[idx_b[b]] = soma.get(idx_b[b], 0) + int(ap)
+        bai.append([x for par in sorted(soma.items(), key=lambda p: -p[1]) for x in par])
+    tij["bairros"] = nomes_b
+    tij["bai"] = bai
     return topo, tij
+
+
+MINUSCULAS = {"de", "da", "do", "das", "dos", "e"}
+
+
+def bairro_limpo(b) -> str | None:
+    if not isinstance(b, str):
+        return None
+    b = " ".join(b.split()).strip(" .-")
+    if not b or b.upper() in ("", "-", "NAO INFORMADO", "NÃO INFORMADO", "ZONA RURAL", "RURAL", "S/N", "SEM BAIRRO"):
+        return None
+    ps = b.lower().split(" ")
+    return " ".join(p if (i and p in MINUSCULAS) else p.upper() if p.strip("ivx") == "" else p[:1].upper() + p[1:]
+                    for i, p in enumerate(ps))
 
 
 def main() -> None:
@@ -114,7 +152,7 @@ def main() -> None:
     rt = rateios()
     base = {"agrs": ags,
             "partidos": {nr: {"sigla": s, "cor": COR[nr]} for nr, s in SIGLA.items()},
-            "rateios": rt, "nomes_rateio": RATEIOS, "pop": populacao(), "ks": {}, "uf": {}}
+            "rateios": rt, "nomes_rateio": RATEIOS, "gamas": list(GAMAS), "pop": populacao(), "ks": {}, "uf": {}}
     for d in ("dist", "mapas", "geo"):
         (SAIDA_WEB / d).mkdir(parents=True, exist_ok=True)
     for uf in ufs:

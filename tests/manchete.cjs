@@ -1,5 +1,5 @@
 // Placar nacional (mediana e p10-p90 dos 50 mapas) num cenario.  Uso:
-//   node tests/manchete.cjs [rateio] [modelo] [regra] [alfa] [beta] [excedentes]
+//   node tests/manchete.cjs [rateio] [modelo] [regra] [alfa] [beta] [excedentes] [gama] [pi]
 const fs = require("fs");
 const path = require("path");
 const A = require("../docs/js/aloca.js");
@@ -8,8 +8,10 @@ const D = path.join(__dirname, "..", "docs", "dados");
 const base = JSON.parse(fs.readFileSync(path.join(D, "base.json"), "utf8"));
 const dist = {};
 for (const uf of Object.keys(base.uf)) dist[uf] = JSON.parse(fs.readFileSync(path.join(D, "dist", uf + ".json"), "utf8"));
-const [rateio = "atual", modelo = "paralelo", regra = "brasil", alfa = "0.7", beta = "0.3", excedentes = "2023"] = process.argv.slice(2);
-const p = { rateio, modelo, regra, alfa: +alfa, beta: +beta, excedentes, campoDe: base.agrs.map(a => a.campo) };
+const cal = JSON.parse(fs.readFileSync(path.join(D, "calibra.json"), "utf8"));
+const [rateio = "atual", modelo = "paralelo", regra = "brasil", alfa = "0.7", beta = String(cal.beta_padrao),
+  excedentes = "2023", gama = "0.5", pi = String(cal.pi_padrao)] = process.argv.slice(2);
+const p = { rateio, modelo, regra, alfa: +alfa, beta: +beta, excedentes, gama: +gama, pi: +pi, campoDe: base.agrs.map(a => a.campo) };
 const r = A.simulaPais(base, dist, p);
 
 const real = {};
@@ -27,4 +29,5 @@ for (const l of linhas) if (l.med || l.real)
   console.log(`${l.sig.padEnd(14)} ${String(l.med).padStart(6)}  (${l.lo}-${l.hi})`.padEnd(34) +
               `${String(l.dmed).padStart(6)}  ${String(l.real).padStart(5)}  ${(l.med - l.real > 0 ? "+" : "") + (l.med - l.real)}`);
 const tot = r.porMapa.map(x => x.total);
-console.log(`Casa: ${A.quantil(tot, .5)}  distritais: ${A.quantil(r.porMapa.map(x => x.distritais), .5)}  sem eleito: ${A.quantil(r.porMapa.map(x => x.semEleito), .5)}`);
+console.log(`Casa: ${A.quantil(tot, .5)}  distritais: ${A.quantil(r.porMapa.map(x => x.distritais), .5)}  sem eleito: ${A.quantil(r.porMapa.map(x => x.semEleito), .5)}  ` +
+            `dois primeiros no distrito: ${(100 * A.quantil(r.porMapa.map(x => x.top2), .5)).toFixed(1)}%`);
