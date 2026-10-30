@@ -1,0 +1,29 @@
+{
+ "desenho_coligacoes": {
+  "beta_hat": 0.0,
+  "ic90": [
+   0.0,
+   0.0
+  ],
+  "cidades": 2363,
+  "cidades_com_movimento": 1217,
+  "reducao_erro": 0.0,
+  "beta_padrao": 0.3,
+  "limpo": false,
+  "nota": "estimativa fora de [0; 0,5] ou IC largo: padrao 0,3"
+ },
+ "desenho_partidos": {
+  "cidades": 5204,
+  "top2_observado": 0.947,
+  "top2_previsto_por_beta": {
+   "0.0": 0.558,
+   "0.25": 0.625,
+   "0.5": 0.696,
+   "0.75": 0.769,
+   "1.0": 0.842
+  },
+  "satura": true
+ },
+ "beta_padrao": 0.3,
+ "nota": "Prefeito 2024, turno unico: com as coligacoes como base, beta = 0 (a coordenacao e de cupula); sem coligacao, nem beta = 1 alcanca a concentracao real nos dois primeiros. Sem estimativa limpa, o padrao fica em 0,3."
+}

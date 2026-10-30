@@ -1,0 +1,8 @@
+{
+  "_leia": "Campo politico de cada agremiacao (esquerda | centro | direita), usado so pelo voto util (beta). Partidos avulsos herdam o 'eixo' de apuracao-2t-2026/config/partidos.json; aqui ficam as federacoes e qualquer correcao. Editavel; a pagina tambem deixa trocar.",
+  "FED-PT/PCdoB/PV": "esquerda",
+  "FED-PSOL/REDE": "esquerda",
+  "FED-PSDB/CID": "centro",
+  "FED-PRD/SOLID": "centro",
+  "FED-UNIAO/PP": "direita"
+}
