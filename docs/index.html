@@ -74,12 +74,18 @@
   <label class="faixa" id="l-lambda" title="Distância no espectro em que a afinidade cai a 37% (e^−1)">Alcance da afinidade λ <output id="o-lambda"></output>
     <input id="f-lambda" type="range" min="0.25" max="10" step="0.25">
   </label>
-  <label title="Candidatos fortes de partidos próximos no espectro não disputam o mesmo distrito; quanto mais próximos, menor a força que já atrapalha">Coordenação entre vizinhos
+  <label id="l-coord" title="Candidatos fortes de partidos próximos no espectro não disputam o mesmo distrito; quanto mais próximos, menor a força que já atrapalha">Coordenação entre vizinhos
     <select id="f-coord">
       <option value="nenhuma">Nenhuma</option>
       <option value="baixa">Baixa</option>
       <option value="media">Média</option>
       <option value="alta">Alta</option>
+    </select>
+  </label>
+  <label title="Onde cada candidato pode disputar: no distrito em que é mais forte (o partido distribui os nomes) ou só no distrito onde mora (aproximado pelo seu maior voto pessoal), sem coordenação">Onde cada um concorre
+    <select id="f-cand">
+      <option value="guloso">Onde é mais forte</option>
+      <option value="mora">Só onde mora</option>
     </select>
   </label>
   <label class="faixa" id="l-kappa" title="Fração do eleitor do partido que saiu do distrito que vota por afinidade (o resto se espalha)">Adesão ao acordo κ <output id="o-kappa"></output>

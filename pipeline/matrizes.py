@@ -15,6 +15,10 @@ Por UF e k (numero de distritos) e para cada um dos N_MAPAS mapas:
     a forca do mais fraco dos dois passa de espectro.limite(distancia). Barrado por partido a ate dw pontos, o partido se retira do
     distrito (bloq); mais longe, pode lancar um nome fraco. Assim Samia e Tabata nao disputam o
     mesmo distrito, mas Tabata e um nome fraco do PT podem;
+  - "so onde mora" (res["coord"]["mora"]): o TSE nao publica o endereco do candidato; o domicilio
+    aproximado e o distrito em que ele teve mais voto pessoal (o reduto). Cada candidato so concorre
+    ali; entre os moradores do mesmo partido concorre o mais votado no distrito e os outros ficam so
+    na lista; partido sem morador nao concorre no distrito. Sem coordenacao: ninguem evita conflito;
   - para cada gama da grade GAMAS, quanto do voto dos colegas (que nao concorrem ali) o candidato
     consegue herdar: cada colega j passa x_j * min(1, proprio/x_j)^gama (o eleitor de um puxador
     so segue um candidato fraco em parte). gama = 0 e o X de antes;
@@ -165,6 +169,21 @@ def emparelha(Vc: np.ndarray, cand_agr: np.ndarray, n_agr: int) -> np.ndarray:
     return escolhido
 
 
+def emparelha_mora(Vc: np.ndarray, cand_agr: np.ndarray, n_agr: int) -> np.ndarray:
+    """So onde mora: cada candidato concorre no distrito do seu maior voto pessoal (o reduto); entre
+    os moradores de uma agremiacao, o mais votado ali."""
+    k = Vc.shape[0]
+    escolhido = -np.ones((k, n_agr), dtype=np.int32)
+    melhor = np.zeros((k, n_agr))
+    casa = Vc.argmax(axis=0)
+    for c in np.flatnonzero(Vc.max(axis=0) > 0):
+        d, a = casa[c], cand_agr[c]
+        if Vc[d, c] > melhor[d, a]:
+            melhor[d, a] = Vc[d, c]
+            escolhido[d, a] = c
+    return escolhido
+
+
 def forca_esperada(Vc: np.ndarray, Va: np.ndarray, nom: np.ndarray, cand_agr: np.ndarray) -> np.ndarray:
     """[k, n_cand] voto esperado do candidato c no distrito d se fosse o candidato do partido ali,
     em fracao do distrito: proprio + legenda + ALFA x sum_j x_j min(1, proprio/x_j)^GAMA."""
@@ -227,7 +246,7 @@ def emparelha_coord(Vc: np.ndarray, forca: np.ndarray, tot: np.ndarray, cand_agr
 
 
 def processa(uf: str, k: int, ins: dict, nivel: tuple | None = None, x: np.ndarray | None = None,
-             mapas: np.ndarray | None = None) -> dict:
+             mapas: np.ndarray | None = None, mora: bool = False) -> dict:
     if mapas is None:
         mapas = np.load(TRAB / "mapas" / f"{uf}_k{k}.npy")
     n_agr = len(ins["agrs"])
@@ -238,7 +257,10 @@ def processa(uf: str, k: int, ins: dict, nivel: tuple | None = None, x: np.ndarr
         P = sparse.coo_matrix((np.ones(ins["n"]), (m, np.arange(ins["n"]))), shape=(k, ins["n"])).tocsr()
         Va = (P @ ins["A"]).toarray()
         Vc = (P @ ins["C"]).toarray()
-        if nivel is None:
+        if mora:
+            esc, bloq = emparelha_mora(Vc, ins["cand_agr"], n_agr), np.zeros((k, n_agr), dtype=bool)
+            apoio = -np.ones((k, n_agr), dtype=np.int32)
+        elif nivel is None:
             esc, bloq = emparelha(Vc, ins["cand_agr"], n_agr), np.zeros((k, n_agr), dtype=bool)
             apoio = -np.ones((k, n_agr), dtype=np.int32)
         else:
@@ -252,7 +274,7 @@ def processa(uf: str, k: int, ins: dict, nivel: tuple | None = None, x: np.ndarr
         razao[escolhido] = 0.0
         Xg = np.stack([np.asarray((Vc * razao ** g) @ G) for g in GAMAS])
         saida.append({"Va": Va.astype(np.int64), "esc": esc, "own": own.astype(np.int64),
-                      "nom": np.asarray(Vc @ G).astype(np.int64), "Xg": np.rint(Xg).astype(np.int64), "bloq": bloq, "apoio": apoio,
+                      "nom": np.asarray(Vc @ G).astype(np.int64), "Xg": np.rint(Xg).astype(np.int64), "bloq": bloq, "apoio": apoio, "mora": mora,
                       "aptos": P @ ins["aptos"], "pop": P @ ins["pop"],
                       "lula": P @ ins["lula"], "flavio": P @ ins["flavio"]})
     return {"mapas": mapas, "dist": saida}
@@ -270,6 +292,7 @@ def main() -> None:
             res["por_k"][k] = processa(uf, k, ins)
             for nome, nivel in NIVEIS.items():
                 res["coord"].setdefault(nome, {})[k] = processa(uf, k, ins, nivel, x, res["por_k"][k]["mapas"])
+            res["coord"].setdefault("mora", {})[k] = processa(uf, k, ins, mapas=res["por_k"][k]["mapas"], mora=True)
         # conferencia: com qualquer mapa, a soma dos distritos = total estadual por agremiacao
         tot = np.asarray(ins["A"].sum(axis=0)).ravel()
         for k, r in res["por_k"].items():
