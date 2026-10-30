@@ -35,10 +35,11 @@
   };
 
   const GAMA_PADRAO = 0.5;
+  const COORD_PADRAO = 2.1;
   const MODELOS = ["paralelo", "compensatorio", "lista"];
   const NOME_MODELO = { paralelo: "paralelo", compensatorio: "compensatório", lista: "só lista fechada" };
   const S = {
-    base: null, cal: null, dist: {}, geo: {}, mapas: {},
+    base: null, cal: null, distPor: {}, pos: [], dist: {}, geo: {}, mapas: {},
     p: null, padrao: null, campoDe: [], resultado: null, aba: "resultado",
     ufRes: "SP", mapaRes: null, ufMap: "SP", mapa: 0, camada: "vencedor", cacheUF: {},
   };
@@ -51,17 +52,39 @@
     const [base, cal] = await Promise.all([d3.json("dados/base.json"), d3.json("dados/calibra.json")]);
     S.base = base; S.cal = cal;
     S.campoDe = base.agrs.map(a => a.campo);
+    S.pos = base.agrs.map(a => a.pos);
     S.padrao = { rateio: "atual", modelo: "paralelo", regra: "brasil", alfa: 0.7, gama: GAMA_PADRAO,
-                 beta: cal.beta_padrao, pi: cal.pi_padrao, excedentes: "2023" };
+                 afinidade: "espectro", coord: COORD_PADRAO, excedentes: "2023" };
+    Object.assign(S.padrao, calibrados(S.padrao));
     S.p = { ...S.padrao };
     lerHash();
-    const ufs = Object.keys(base.uf);
-    let feitos = 0;
-    await Promise.all(ufs.map(uf => d3.json(`dados/dist/${uf}.json`).then(d => {
-      S.dist[uf] = d; feitos++;
-      $("#carregando").textContent = `Carregando os 27 estados… ${feitos}/27`;
-    })));
-    $("#carregando").hidden = true;
+    await carregaDist();
+  }
+
+  // beta, pi, lambda e kappa calibrados para a combinacao afinidade x coordenacao
+  function calibrados(p) {
+    const c = S.cal[p.afinidade][p.coord ? "com" : "sem"];
+    return { beta: c.beta, pi: c.pi, lambda: c.lambda || 1, kappa: c.kappa === undefined ? 1 : c.kappa };
+  }
+
+  // distritos da variante ativa (sem coordenacao ou com um limiar); cada variante e baixada uma vez
+  const pastaDist = (coord) => coord ? `dist_c${coord.toFixed(1)}` : "dist";
+  async function carregaDist() {
+    const pasta = pastaDist(S.p.coord);
+    if (!S.distPor[pasta]) {
+      const aviso = $("#carregando");
+      aviso.hidden = false;
+      const ufs = Object.keys(S.base.uf), d = {};
+      let feitos = 0;
+      await Promise.all(ufs.map(uf => d3.json(`dados/${pasta}/${uf}.json`).then(x => {
+        d[uf] = x; feitos++;
+        aviso.textContent = `Carregando os 27 estados… ${feitos}/27`;
+      })));
+      S.distPor[pasta] = d;
+      aviso.hidden = true;
+    }
+    S.dist = S.distPor[pasta];
+    S.cacheUF = {};
   }
 
   const partidoDe = (nr) => S.base.partidos[nr] || { sigla: nr, cor: "#999" };
@@ -78,7 +101,10 @@
   const siglaAgr = (a) => a < 0 ? "outros" : (NOME[S.base.agrs[a].sigla] || S.base.agrs[a].sigla);
 
   // ------------------------------------------------------------------ simulacao
-  function params(extra) { return { ...S.p, campoDe: S.campoDe, gamas: S.base.gamas, ...extra }; }
+  function params(extra) {
+    return { ...S.p, campoDe: S.campoDe, gamas: S.base.gamas, pos: S.pos, limiar: S.p.coord,
+             posCoord: S.base.agrs.map(a => a.pos), ...extra };
+  }
 
   function simula() {
     const modelos = {};
@@ -104,7 +130,7 @@
   // ------------------------------------------------------------------ hash (estado compartilhavel)
   function escreveHash() {
     const p = S.p;
-    const h = `m=${p.modelo}&r=${p.rateio}&l=${p.regra}&a=${p.alfa}&g=${p.gama}&b=${p.beta}&p=${p.pi}&e=${p.excedentes}&t=${S.aba}&uf=${S.ufMap}&n=${S.mapa}&c=${S.camada}${zoomAtual ? "&z=" + encodeURIComponent(zoomAtual) : ""}`;
+    const h = `m=${p.modelo}&r=${p.rateio}&l=${p.regra}&a=${p.alfa}&g=${p.gama}&b=${p.beta}&p=${p.pi}&af=${p.afinidade}&co=${p.coord}&la=${p.lambda}&ka=${p.kappa}&e=${p.excedentes}&t=${S.aba}&uf=${S.ufMap}&n=${S.mapa}&c=${S.camada}${zoomAtual ? "&z=" + encodeURIComponent(zoomAtual) : ""}`;
     history.replaceState(null, "", "#" + h);
   }
   function lerHash() {
@@ -113,7 +139,11 @@
     const set = (campo, v) => { if (v !== undefined && v !== "" && !Number.isNaN(v)) S.p[campo] = v; };
     set("modelo", g("m", String)); set("rateio", g("r", String)); set("regra", g("l", String));
     set("alfa", g("a", Number)); set("beta", g("b", Number)); set("excedentes", g("e", String));
-    set("gama", g("g", Number)); set("pi", g("p", Number));
+    set("afinidade", g("af", String)); set("coord", g("co", Number));
+    if (!S.cal[S.p.afinidade] || (S.p.coord && !S.base.limiares.includes(S.p.coord))) { S.p.afinidade = S.padrao.afinidade; S.p.coord = S.padrao.coord; }
+    Object.assign(S.p, calibrados(S.p));
+    set("gama", g("g", Number)); set("pi", g("p", Number)); set("beta", g("b", Number));
+    set("lambda", g("la", Number)); set("kappa", g("ka", Number));
     S.aba = g("t", String) || S.aba; S.ufMap = g("uf", String) || S.ufMap;
     S.mapa = g("n", Number) || 0; S.camada = g("c", String) || S.camada;
     zoomPendente = g("z", String) || null;
@@ -124,10 +154,14 @@
   function sincronizaFiltros() {
     $("#f-modelo").value = S.p.modelo; $("#f-rateio").value = S.p.rateio; $("#f-regra").value = S.p.regra;
     $("#f-exc").value = S.p.excedentes;
-    for (const c of ["alfa", "gama", "beta", "pi"]) {
+    $("#f-afin").value = S.p.afinidade; $("#f-coord").value = String(S.p.coord);
+    for (const c of ["alfa", "gama", "beta", "pi", "lambda", "kappa"]) {
       $("#f-" + c).value = S.p[c];
       $("#o-" + c).textContent = S.p[c].toFixed(2).replace(".", ",");
     }
+    const liga = (id, on) => { $("#l-" + id).classList.toggle("desligado", !on); $("#f-" + id).disabled = !on; };
+    liga("lambda", S.p.afinidade === "espectro");
+    liga("kappa", S.p.coord > 0);
     $("#l-exc").classList.toggle("desligado", S.p.modelo !== "compensatorio");
     $("#f-exc").disabled = S.p.modelo !== "compensatorio";
   }
@@ -143,8 +177,21 @@
     $("#f-rateio").onchange = e => { S.mapaRes = null; mudou("rateio", e.target.value, true); };
     $("#f-regra").onchange = e => mudou("regra", e.target.value, true);
     $("#f-exc").onchange = e => mudou("excedentes", e.target.value, true);
-    for (const c of ["alfa", "gama", "beta", "pi"]) $("#f-" + c).oninput = e => mudou(c, +e.target.value);
-    $("#f-reset").onclick = () => { S.p = { ...S.padrao }; S.campoDe = S.base.agrs.map(a => a.campo); sincronizaFiltros(); simula(); desenha(); };
+    for (const c of ["alfa", "gama", "beta", "pi", "lambda", "kappa"]) $("#f-" + c).oninput = e => mudou(c, +e.target.value);
+    // trocar afinidade ou coordenacao volta beta/pi/lambda/kappa aos calibrados daquela combinacao
+    const trocaModo = async (campo, valor) => {
+      S.p[campo] = valor;
+      Object.assign(S.p, calibrados(S.p));
+      sincronizaFiltros();
+      await carregaDist();
+      simula(); desenha();
+    };
+    $("#f-afin").onchange = e => trocaModo("afinidade", e.target.value);
+    $("#f-coord").onchange = e => trocaModo("coord", +e.target.value);
+    $("#f-reset").onclick = async () => {
+      S.p = { ...S.padrao }; S.campoDe = S.base.agrs.map(a => a.campo); S.pos = S.base.agrs.map(a => a.pos);
+      sincronizaFiltros(); await carregaDist(); simula(); desenha();
+    };
     document.querySelectorAll(".abas button").forEach(b => b.onclick = () => trocaAba(b.dataset.aba));
   }
   function trocaAba(aba) {
@@ -658,8 +705,11 @@
 
   function htmlCandidatos(uf, r, j) {
     const cs = S.base.uf[uf].cands, d = r.dist[j], v = r.vencedores[j];
-    const ordem = [...d.V.keys()].sort((a, b) => d.V[b] - d.V[a]);
-    const linhas = ordem.map((i, pos) => {
+    const v2 = (x) => String(x).replace(".", ",");
+    const correm = [...d.V.keys()].filter(i => d.cand[i] !== -2).sort((a, b) => d.V[b] - d.V[a]);
+    const sairam = [...d.V.keys()].filter(i => d.cand[i] === -2).sort((a, b) => d.Tw[b] - d.Tw[a]);
+    const temAcordo = sairam.length > 0;
+    const linhas = correm.map((i, pos) => {
       let ci = d.cand[i];
       if (ci < 0 && i === d.venc && v.cand >= 0) ci = v.cand;     // vencedor sem base local: o "generico"
       const c = ci >= 0 ? cs[ci] : null;
@@ -670,17 +720,21 @@
       const ali = c && c[4] ? pct(d.P[i] / c[4], 0) : "";
       return `<tr${i === d.venc ? ' class="venc"' : ""}><td>${pos + 1}</td><td>${nome}</td>` +
         `<td class="n">${num(d.P[i])}</td><td class="n">${num(d.L[i])}</td><td class="n">${num(d.H[i])}</td>` +
+        (temAcordo ? `<td class="n">${sinal(d.A[i])}</td>` : "") +
         `<td class="n">${sinal(d.R[i])}</td><td class="n">${sinal(d.U[i])}</td>` +
         `<td class="n"><b>${num(d.V[i])}</b></td><td class="n">${pct(d.V[i] / d.tot)}</td>` +
         `<td class="n">${c ? num(c[4]) : ""}</td><td class="n">${ali}</td><td>${real}</td></tr>`;
     }).join("");
+    const retirados = sairam.length ? `<p class="nota"><b>Retiraram a candidatura aqui, por acordo com um vizinho no espectro</b>
+      (até ${v2(S.p.coord)} ponto${S.p.coord >= 2 ? "s" : ""}): ${sairam.map(i => `${siglaAgr(i < 0 ? -1 : d.agr[i])} (${num(d.Tw[i])} votos em 2026 aqui)`).join(", ")}.
+      ${pct(S.p.kappa, 0)} desses votos vão para o vizinho que concorre (coluna "Acordo"); o resto se espalha entre todos.</p>` : "";
     return `<table class="tabela sub"><thead><tr><th></th><th>Candidato</th><th class="n">Voto próprio aqui</th><th class="n">Legenda</th>
-      <th class="n">Herdado de colegas</th><th class="n">De outros partidos</th><th class="n">Voto útil e polarização</th>
+      <th class="n">Herdado de colegas</th>${temAcordo ? '<th class="n">Acordo</th>' : ""}<th class="n">De outros partidos</th><th class="n">Voto útil e polarização</th>
       <th class="n">Simulado</th><th class="n">%</th><th class="n">Total real no estado</th><th class="n">Aqui / total</th><th>Em 2026</th></tr></thead>
-      <tbody>${linhas}</tbody></table>
+      <tbody>${linhas}</tbody></table>${retirados}
       <p class="nota">Voto próprio, legenda e total real são votos de verdade de 2026. "Herdado de colegas" é o que ele leva dos colegas de partido
-      que não concorrem aqui (α = ${String(S.p.alfa).replace(".", ",")}, γ = ${String(S.p.gama).replace(".", ",")}); "De outros partidos" é o que
-      chega do voto que os outros não herdaram; a última etapa é o voto útil no campo (β) e a polarização (π).
+      que não concorrem aqui (α = ${v2(S.p.alfa)}, γ = ${v2(S.p.gama)}); "De outros partidos" é o que chega do voto que os outros não herdaram;
+      a última etapa é o voto útil (β) e a polarização (π)${S.p.afinidade === "espectro" ? `, pela distância no espectro (λ = ${v2(S.p.lambda)})` : ", por campo"}.
       "Aqui / total": quanto da votação real do candidato no estado veio deste distrito.</p>`;
   }
 
@@ -746,8 +800,12 @@
     const kAtual = d3.sum(ks, x => x.atual), kSem = d3.sum(ks, x => x.sem_teto), kPuro = d3.sum(ks, x => x.puro);
     const faixas = c.por_faixa.map(f => `<tr><td>${num(f.de)} a ${num(f.ate)}</td><td class="n">${num(f.cidades)}</td>` +
       `<td class="n">${v(f.candidatos)}</td><td class="n">${pct(f.top2, 1)}</td></tr>`).join("");
-    const curva = c.curva.filter((x, i) => i % 2 === 0 || x.beta === c.beta_padrao)
-      .map(x => `<tr${x.beta === c.beta_padrao ? ' style="font-weight:600"' : ""}><td class="n">${v(x.beta)}</td><td class="n">${v(x.pi)}</td><td class="n">${v(x.erro_campo.toFixed(3))}</td></tr>`).join("");
+    const ic = (x) => x ? `${v(Math.round(x[0] * 100) / 100)}–${v(Math.round(x[1] * 100) / 100)}` : "";
+    const linhaCal = (rot, x) => `<tr><td>${rot}</td><td class="n">${x.kappa === undefined ? "—" : v(x.kappa)}</td>` +
+      `<td class="n">${v(x.beta)}</td><td class="n">${v(x.pi)}</td><td class="n">${x.lambda === undefined ? "—" : v(x.lambda)}</td>` +
+      `<td class="n">${pct(x.top2_previsto, 0)}</td><td class="faixa-txt">${x.kappa === undefined ? `β ${ic(x.ic90_beta)}, π ${ic(x.ic90_pi)}` : `κ ${ic(x.ic90_kappa)}, β ${ic(x.ic90_beta)}, π ${ic(x.ic90_pi)}`}</td></tr>`;
+    const tabCal = linhaCal("Campos fixos, sem coordenação", c.campos.sem) + linhaCal("Campos fixos, com coordenação", c.campos.com) +
+      linhaCal("Espectro, sem coordenação", c.espectro.sem) + linhaCal("Espectro, com coordenação", c.espectro.com);
     $("#metodo").innerHTML = `
 <h2>O que foi simulado</h2>
 <p>Votos de verdade, regras de mentira. A eleição de deputado federal de 4/10/2026 é recontada como se o eleitor
@@ -773,22 +831,34 @@ como em 2026; o placar é aberto por partido pelo candidato eleito.</p>
 (cadeia de Markov de árvores geradoras) a partir de um grafo de municípios. Município maior que meio distrito é quebrado em células
 em volta dos seus locais de votação; os bairros listados em cada distrito são os do cadastro desses locais no TSE.
 Cinquenta mapas por estado e por número de distritos; o resultado nacional é a mediana dos 50, e a faixa vai do 10º ao 90º percentil.</p>
-<p><b>3. Quem concorre onde.</b> Cada agremiação tem um candidato por distrito, tirado dos seus candidatos reais de 2026 por
-emparelhamento guloso: os pares (candidato, distrito) são ordenados pelos votos do candidato naquele distrito, e cada candidato fica
-com um distrito só. Onde a agremiação não tem ninguém com base local, entra o mais votado dela no estado que ainda está livre.
-Há dupla candidatura: quem perde o distrito continua na lista, na ordem de votação nominal.</p>
-<p><b>4. Votos no distrito</b>, em três etapas.</p>
+<p><b>3. Quem concorre onde.</b> Os candidatos são os reais de 2026, distribuídos por emparelhamento guloso: os pares (candidato, distrito)
+são ordenados pelos votos do candidato naquele distrito, e cada candidato fica com um distrito só. Há dupla candidatura: quem perde o distrito
+continua na lista, na ordem de votação nominal.</p>
 <ul>
+<li><b>Sem coordenação</b>, cada agremiação tem um candidato em cada distrito. Onde ela não tem ninguém com base local, entra o mais votado dela
+no estado que ainda está livre.</li>
+<li><b>Com coordenação</b>, agremiações vizinhas no espectro (a até 1,0, 1,5, 2,1 ou 2,5 pontos uma da outra; ver a tabela no fim da página) não lançam
+candidato no mesmo distrito. O emparelhamento é feito para todas de uma vez, em ordem do voto esperado do candidato ali como representante do
+partido (voto próprio + legenda + 0,7 × voto dos colegas): é a força do partido no distrito que decide quem fica no acordo, e dentro do partido
+vence quem tem mais voto pessoal. Um par entra se o candidato está livre, se a agremiação ainda não tem ninguém ali e se nenhuma vizinha tem.
+Assim, o candidato mais forte de cada partido vai para onde tem mais voto, e o aliado procura outro distrito: se Sâmia (PSOL) fica com o distrito, Tabata (PSB) vai para outro (com o limiar de 2,1 pontos, que é a distância entre a federação
+PSOL/Rede e o PSB). A vizinha que fica sem candidato num distrito "se retira por acordo".</li>
+</ul>
+<p><b>4. Votos no distrito</b>, em quatro etapas.</p>
+<ul>
+<li><b>Acordo (κ).</b> Quem se retirou passa κ dos seus votos às vizinhas que concorrem ali (no espectro, mais para a mais próxima); o resto se espalha
+entre todos os candidatos, na proporção do voto de cada um.</li>
 <li><b>Herança dos colegas (α e γ).</b> O candidato fica com os votos dele ali e com a legenda. Dos votos que cada colega de agremiação que
 não concorre naquele distrito teve lá, ele herda α × min(1, votos dele ÷ votos do colega)<sup>γ</sup>. Com γ = 0, todo colega passa a mesma
 fração α. Com γ &gt; 0, o eleitor de um puxador segue menos um candidato muito mais fraco que ele: se o candidato do distrito teve um quarto dos
 votos do puxador ali, com γ = 0,5 ele herda metade de α. O que não é herdado vai para as outras agremiações, na proporção do voto delas no distrito.</li>
-<li><b>Voto útil no campo (β).</b> Quem ficou do 3º lugar para baixo e não lidera o próprio campo (esquerda, centro, direita) perde β dos votos
-para o mais bem colocado do campo.</li>
-<li><b>Polarização (π).</b> Depois disso, todo mundo do 3º lugar para baixo, inclusive o líder de um campo que ficou para trás, perde π do que
-sobrou para um dos dois primeiros: o de campo mais próximo na linha esquerda–centro–direita. O eleitor de esquerda cujo candidato ficou em 3º
-vota no do centro para barrar a direita. Se os dois primeiros estão à mesma distância (o centro diante de esquerda × direita), o voto se
-divide na proporção deles.</li>
+<li><b>Voto útil (β).</b> Quem ficou do 3º lugar para baixo perde votos para quem está à sua frente. Nos <b>campos fixos</b>, quem não lidera o próprio
+campo (esquerda, centro, direita) passa β dos votos ao mais bem colocado do campo. No <b>espectro</b>, a afinidade entre duas agremiações é
+e<sup>−distância/λ</sup> (com λ = 1, quem está a 1 ponto tem afinidade 0,37; a 2 pontos, 0,14): o candidato passa β × a maior afinidade com
+quem está à frente, dividido entre eles por afinidade × votos. O voto do PSB vai mais para o PT (0,9 ponto) do que para o PSOL (2,1) ou o PSD (3,4).</li>
+<li><b>Polarização (π).</b> Depois disso, todo mundo do 3º lugar para baixo perde π do que sobrou para os dois primeiros. Nos campos, vai para o de
+campo mais próximo; se os dois estão à mesma distância (o centro diante de esquerda × direita), divide na proporção deles. No espectro, divide na
+proporção das afinidades. O eleitor de esquerda cujo candidato ficou em 3º vota no do centro para barrar a direita.</li>
 </ul>
 <p>Ganha quem tiver mais votos.</p>
 <h2>A calibração com as prefeituras</h2>
@@ -798,15 +868,20 @@ A concentração nos dois primeiros cai com o tamanho da cidade e com o número 
 <th class="n">Dois primeiros</th></tr></thead><tbody>${faixas}</tbody></table>
 <p>Um distrito teria uns 600 mil eleitores, mais que qualquer cidade de turno único. Por isso a calibração usa as ${num(c.amostra.cidades)}
 cidades de ${num(c.amostra.de)} a ${num(c.amostra.ate)} eleitores, onde os dois primeiros ficam com <b>${pct(c.top2_observado, 0)}</b>.
-O exercício: cada partido vira um "candidato" com o seu voto para vereador (sem coligação, como no simulador) e β e π precisam levar essa
-dispersão, em que os dois primeiros têm só ${pct(c.top2_sem_ajuste, 0)}, até a concentração real.</p>
-<p>A fatia dos dois primeiros sozinha não separa β de π: há uma curva de pares que a reproduzem (tabela). O desempate vem da votação por campo.
-β não muda quanto cada campo tem (só mexe dentro dele), e π muda. Entre os pares da curva, fica o que melhor acerta a votação de prefeito
-por campo: <b>β = ${v(c.beta_padrao)} e π = ${v(c.pi_padrao)}</b>. A curva é rasa (intervalo de 90% no bootstrap por cidade: β de
-${v(c.ic90_beta[0])} a ${v(c.ic90_beta[1])}, π de ${v(c.ic90_pi[0])} a ${v(c.ic90_pi[1])}), mas o placar quase não muda ao longo dela:
-o que pesa é a concentração total, e essa é bem medida.</p>
-<table class="tabela" style="max-width:360px"><thead><tr><th class="n">β</th><th class="n">π que dá ${pct(c.top2_observado, 0)}</th>
-<th class="n">Erro por campo</th></tr></thead><tbody>${curva}</tbody></table>
+Cada combinação de afinidade e coordenação tem a sua calibração, com o mesmo código do simulador:</p>
+<ul>
+<li><b>Sem coordenação</b>: cada partido vira um "candidato" com o seu voto para vereador (sem coligação, como no simulador), e os parâmetros precisam
+levar essa dispersão, em que os dois primeiros têm só ${pct(c.top2_sem_ajuste, 0)}, até a concentração real. Esse alvo sozinho não separa β de π:
+há uma curva de pontos que o reproduzem. O desempate vem da votação de prefeito por campo, que β não muda e π muda.</li>
+<li><b>Com coordenação</b>: as coligações de verdade fazem o papel do acordo. O candidato a prefeito leva o voto do próprio partido e κ do voto para
+vereador dos partidos coligados; depois vêm β e π. O alvo é a votação de cada candidato. Calibrar β e π de novo aqui evita contar duas vezes a
+mesma concentração: sem coligações no modelo, o β alto absorvia justamente o efeito delas.</li>
+</ul>
+<table class="tabela" style="max-width:860px"><thead><tr><th>Combinação</th><th class="n">κ</th><th class="n">β</th><th class="n">π</th><th class="n">λ</th>
+<th class="n">Dois primeiros</th><th>Intervalo de 90% (bootstrap por cidade)</th></tr></thead><tbody>${tabCal}</tbody></table>
+<p>Com as coligações explícitas, o voto útil e a polarização quase somem: a coordenação de cúpula explica a concentração. E κ sai baixo: só uma
+parte do voto para vereador dos partidos coligados segue o candidato a prefeito, porque voto de vereador é muito pessoal. Ao trocar a afinidade
+ou a coordenação nos seletores, β, π, λ e κ voltam aos valores calibrados para aquela combinação.</p>
 <p>Ressalva: prefeitura é cargo executivo, com coligação montada antes, e pode concentrar mais que uma eleição de deputado. Em países com distrito de um eleito só e vários partidos, como o Reino Unido,
 a concentração nos dois primeiros costuma ser menor. Os seletores permitem testar o simulador com menos concentração.</p>
 <h2>As premissas que não são medidas</h2>
@@ -828,12 +903,21 @@ não contam para ninguém, como no TSE.</li>
 pelo método dos maiores restos: sem teto e com piso 8 (SP iria para ${S.base.rateios.sem_teto.SP}) ou proporcional puro, com piso 1
 (SP ${S.base.rateios.puro.SP}; Acre, Amapá e Roraima ficariam com ${S.base.rateios.puro.AC}).</p>`;
     const tb = d3.select("#t-campos tbody").html("");
-    S.base.agrs.forEach((a, i) => {
-      if (!Object.values(S.base.uf).some(u => u.votos_agr[i])) return;
+    const L = S.p.coord;
+    d3.select("#t-campos thead th:last-child").text(L ? `Vizinhos que coordenam (até ${String(L).replace(".", ",")})` : "Vizinhos (coordenação desligada)");
+    const vivas = S.base.agrs.map((a, i) => i).filter(i => Object.values(S.base.uf).some(u => u.votos_agr[i]));
+    vivas.sort((x, y) => (S.base.agrs[x].pos ?? 99) - (S.base.agrs[y].pos ?? 99)).forEach(i => {
+      const a = S.base.agrs[i];
       const tr = tb.append("tr");
       tr.append("td").text(NOME[a.sigla] || a.sigla);
       const sel = tr.append("td").append("select").on("change", e => { S.campoDe[i] = e.target.value; simula(); escreveHash(); });
       CAMPOS.forEach(c => sel.append("option").attr("value", c).property("selected", S.campoDe[i] === c).text(ROT_CAMPO[c]));
+      tr.append("td").attr("class", "n").append("input").attr("type", "number").attr("min", 0).attr("max", 10).attr("step", 0.1)
+        .style("width", "64px").property("value", S.pos[i] ?? "")
+        .on("change", e => { const v = parseFloat(e.target.value); S.pos[i] = Number.isNaN(v) ? null : v; simula(); });
+      const viz = L ? vivas.filter(j => j !== i && a.pos != null && S.base.agrs[j].pos != null &&
+        Math.abs(S.base.agrs[j].pos - a.pos) <= L + 1e-9).map(j => siglaAgr(j)) : [];
+      tr.append("td").attr("class", "regiao").text(viz.join(", ") || "—");
     });
   }
 

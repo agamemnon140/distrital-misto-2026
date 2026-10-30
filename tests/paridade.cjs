@@ -52,20 +52,47 @@ const chave = (x) => JSON.stringify(Object.entries(x.agr).sort());
 ok(l1.porMapa.every(x => chave(x) === chave(l1.porMapa[0]) && x.distritais === 0), "lista fechada varia entre mapas");
 ok(chave(l1.porMapa[0]) === chave(l2.porMapa[0]), "lista fechada depende de alfa/beta/gama/pi");
 
-// 5) conservacao no distrito: as tres etapas so movem votos
-for (const uf of ["SP", "AC", "MG"]) {
-  const k = base.ks[uf].atual;
-  for (const flat of dist[uf][k][0].d) {
-    const passo = 5 + base.gamas.length;
-    let T = 0; for (let i = 1; i < flat.length; i += passo) T += flat[i];
-    const d = A.distrito(flat, { alfa: 0.7, beta: 1, gama: 0.5, pi: 0.4, campoDe, gamas: base.gamas });
-    ok(Math.abs(d.tot - T) < 1e-6 * T, `${uf}: distrito nao conserva votos`);
-    d.V.forEach((v, i) => {
-      ok(Math.abs(d.P[i] + d.L[i] + d.H[i] + d.R[i] + d.U[i] - v) < 1e-6 * T, `${uf}: decomposicao nao fecha`);
-      ok(d.L[i] >= 0 && d.P[i] >= 0, `${uf}: legenda ou voto proprio negativo`);
-      if (d.cand[i] >= 0) ok(d.P[i] <= base.uf[uf].cands[d.cand[i]][4], `${uf}: voto proprio maior que o total`);
-    });
+// 5) conservacao no distrito: as etapas so movem votos; a decomposicao fecha; quem se retirou zera
+const pos = base.agrs.map(a => a.pos);
+const cenarios = [
+  ["dist", { afinidade: "campos", beta: 1, pi: 0.4 }],
+  ["dist", { afinidade: "espectro", beta: 0.7, pi: 0.4, lambda: 1.5 }],
+  ...base.limiares.map(L => [`dist_c${L.toFixed(1)}`, { afinidade: "espectro", beta: 0.3, pi: 0.3, lambda: 1, kappa: 0.4, limiar: L }]),
+];
+for (const [pasta, extra] of cenarios) {
+  for (const uf of ["SP", "AC", "MG"]) {
+    const du = JSON.parse(fs.readFileSync(path.join(D, pasta, uf + ".json"), "utf8"));
+    const k = base.ks[uf].atual;
+    for (const flat of du[k][0].d) {
+      const passo = 5 + base.gamas.length;
+      let T = 0; for (let i = 1; i < flat.length; i += passo) T += flat[i];
+      const d = A.distrito(flat, { alfa: 0.7, gama: 0.5, campoDe, gamas: base.gamas, pos, posCoord: pos, ...extra });
+      ok(Math.abs(d.tot - T) < 1e-6 * T, `${pasta} ${uf}: distrito nao conserva votos`);
+      d.V.forEach((v, i) => {
+        ok(Math.abs(d.P[i] + d.L[i] + d.H[i] + d.R[i] + d.A[i] + d.U[i] - v) < 1e-6 * T, `${pasta} ${uf}: decomposicao nao fecha`);
+        ok(d.L[i] >= 0 && d.P[i] >= 0, `${pasta} ${uf}: legenda ou voto proprio negativo`);
+        if (d.cand[i] >= 0) ok(d.P[i] <= base.uf[uf].cands[d.cand[i]][4], `${pasta} ${uf}: voto proprio maior que o total`);
+        if (d.cand[i] === -2) ok(v === 0, `${pasta} ${uf}: quem se retirou ainda tem voto`);
+      });
+    }
   }
+}
+
+// 6) coordenacao: nenhuma dupla de vizinhas (ate o limiar) concorre no mesmo distrito
+for (const L of base.limiares) {
+  let pares = 0;
+  for (const uf of Object.keys(base.uf)) {
+    const du = JSON.parse(fs.readFileSync(path.join(D, `dist_c${L.toFixed(1)}`, uf + ".json"), "utf8"));
+    for (const k of Object.keys(du)) for (const mapa of du[k]) for (const flat of mapa.d) {
+      const passo = 5 + base.gamas.length, correm = [];
+      for (let o = 0; o < flat.length; o += passo) if (flat[o + 3] >= 0 && flat[o] >= 0) correm.push(flat[o]);
+      for (let a = 0; a < correm.length; a++) for (let b = a + 1; b < correm.length; b++) {
+        const pa = pos[correm[a]], pb = pos[correm[b]];
+        if (pa != null && pb != null && Math.abs(pa - pb) <= L + 1e-9) pares++;
+      }
+    }
+  }
+  ok(pares === 0, `limiar ${L}: ${pares} pares de vizinhas no mesmo distrito`);
 }
 console.log(falhas ? `${falhas} falha(s)` : "tudo certo");
 process.exit(falhas ? 1 : 0);

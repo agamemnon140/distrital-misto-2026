@@ -6,6 +6,14 @@ Por UF e k (numero de distritos) e para cada um dos N_MAPAS mapas:
     (candidato, distrito) em ordem decrescente do voto do candidato ali; cada candidato fica com
     um distrito so, e cada agremiacao com um candidato por distrito). Nao depende de alfa/beta,
     por isso fica pronto aqui;
+  - com coordenacao (um limiar L do espectro): agremiacoes a ate L pontos uma da outra nao poem
+    candidato no mesmo distrito. O emparelhamento e um so, para todas: pares (candidato, distrito)
+    em ordem decrescente do voto esperado do candidato ali como representante do partido (proprio
+    + legenda + ALFA_ACORDO x colegas) -- e a forca do partido no distrito que decide o acordo, e
+    dentro do partido ainda vence quem tem mais voto pessoal. O par entra se o candidato esta livre,
+    a agremiacao ainda nao tem ninguem ali e nenhuma vizinha tem. Quem fica sem candidato porque
+    uma vizinha concorre ali "retirou-se por acordo" (bloq). Assim a Tabata vai para o distrito onde
+    a Samia nao esta;
   - para cada gama da grade GAMAS, quanto do voto dos colegas (que nao concorrem ali) o candidato
     consegue herdar: cada colega j passa x_j * min(1, proprio/x_j)^gama (o eleitor de um puxador
     so segue um candidato fraco em parte). gama = 0 e o X de antes;
@@ -24,10 +32,12 @@ import pandas as pd
 from scipy import sparse
 
 from .caminhos import ELEICOES, TRAB, UFS
+from .espectro import LIMIARES, posicoes
 from .mapas import ks_da_uf
 
 SAIDA = TRAB / "matrizes"
 GAMAS = (0.25, 0.5, 0.75, 1.0)
+ALFA_ACORDO = 0.7         # alfa padrao, so para ordenar quem concorre no acordo
 SAIDA.mkdir(parents=True, exist_ok=True)
 
 _CACHE: dict = {}
@@ -154,8 +164,35 @@ def emparelha(Vc: np.ndarray, cand_agr: np.ndarray, n_agr: int) -> np.ndarray:
     return escolhido
 
 
-def processa(uf: str, k: int, ins: dict) -> dict:
-    mapas = np.load(TRAB / "mapas" / f"{uf}_k{k}.npy")
+def emparelha_coord(Vc: np.ndarray, Va: np.ndarray, nom: np.ndarray, cand_agr: np.ndarray,
+                    viz: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Como emparelha, mas com vizinhas (viz[a, b] = True) que nao dividem distrito. A ordem e o voto
+    esperado do candidato c no distrito d: Va[d, a] - (1 - ALFA_ACORDO) * (nom[d, a] - Vc[d, c]).
+    Devolve (escolhido[k, n_agr], bloq[k, n_agr])."""
+    k, n_agr = Vc.shape[0], viz.shape[0]
+    escolhido = -np.ones((k, n_agr), dtype=np.int32)
+    bloq = np.zeros((k, n_agr), dtype=bool)
+    usado = np.zeros(Vc.shape[1], dtype=bool)
+    forca = Va[:, cand_agr] - (1 - ALFA_ACORDO) * (nom[:, cand_agr] - Vc)
+    forca[Vc <= 0] = -1
+    ordem = np.argsort(-forca, axis=None, kind="stable")
+    for flat in ordem:
+        d, c = divmod(int(flat), Vc.shape[1])
+        if forca[d, c] < 0:
+            break
+        a = cand_agr[c]
+        if usado[c] or escolhido[d, a] >= 0 or bloq[d, a]:
+            continue
+        escolhido[d, a] = c
+        usado[c] = True
+        bloq[d] |= viz[a]
+    bloq &= escolhido < 0
+    return escolhido, bloq
+
+
+def processa(uf: str, k: int, ins: dict, viz: np.ndarray | None = None, mapas: np.ndarray | None = None) -> dict:
+    if mapas is None:
+        mapas = np.load(TRAB / "mapas" / f"{uf}_k{k}.npy")
     n_agr = len(ins["agrs"])
     G = sparse.coo_matrix((np.ones(len(ins["cand_agr"])), (np.arange(len(ins["cand_agr"])), ins["cand_agr"])),
                           shape=(len(ins["cand_agr"]), n_agr)).tocsr()       # candidato -> agremiacao
@@ -164,7 +201,10 @@ def processa(uf: str, k: int, ins: dict) -> dict:
         P = sparse.coo_matrix((np.ones(ins["n"]), (m, np.arange(ins["n"]))), shape=(k, ins["n"])).tocsr()
         Va = (P @ ins["A"]).toarray()
         Vc = (P @ ins["C"]).toarray()
-        esc = emparelha(Vc, ins["cand_agr"], n_agr)
+        if viz is None:
+            esc, bloq = emparelha(Vc, ins["cand_agr"], n_agr), np.zeros((k, n_agr), dtype=bool)
+        else:
+            esc, bloq = emparelha_coord(Vc, Va, np.asarray(Vc @ G), ins["cand_agr"], viz)
         own = np.where(esc >= 0, np.take_along_axis(Vc, np.maximum(esc, 0), axis=1), 0)
         own_c = own[:, ins["cand_agr"]]                                  # proprio do escolhido da agremiacao
         escolhido = esc[:, ins["cand_agr"]] == np.arange(len(ins["cand_agr"]))[None, :]
@@ -173,7 +213,7 @@ def processa(uf: str, k: int, ins: dict) -> dict:
         razao[escolhido] = 0.0
         Xg = np.stack([np.asarray((Vc * razao ** g) @ G) for g in GAMAS])
         saida.append({"Va": Va.astype(np.int64), "esc": esc, "own": own.astype(np.int64),
-                      "nom": np.asarray(Vc @ G).astype(np.int64), "Xg": np.rint(Xg).astype(np.int64),
+                      "nom": np.asarray(Vc @ G).astype(np.int64), "Xg": np.rint(Xg).astype(np.int64), "bloq": bloq,
                       "aptos": P @ ins["aptos"], "pop": P @ ins["pop"],
                       "lula": P @ ins["lula"], "flavio": P @ ins["flavio"]})
     return {"mapas": mapas, "dist": saida}
@@ -183,10 +223,16 @@ def main() -> None:
     for uf in sys.argv[1:] or UFS:
         t0 = time.time()
         ins = insumos(uf)
-        res = {"ins": {k: v for k, v in ins.items() if k not in ("A", "C")}, "por_k": {}}
+        res = {"ins": {k: v for k, v in ins.items() if k not in ("A", "C")}, "por_k": {}, "coord": {}}
         res["ins"]["aptos_tij"] = ins["aptos"]
+        pos = posicoes()
+        x = np.array([pos.get(a, np.nan) for a in ins["agrs"]])
         for k in ks_da_uf(uf):
             res["por_k"][k] = processa(uf, k, ins)
+            for L in LIMIARES:
+                viz = np.abs(x[:, None] - x[None, :]) <= L        # nan -> False: sem nota, sem vizinha
+                np.fill_diagonal(viz, False)
+                res["coord"].setdefault(L, {})[k] = processa(uf, k, ins, viz, res["por_k"][k]["mapas"])
         # conferencia: com qualquer mapa, a soma dos distritos = total estadual por agremiacao
         tot = np.asarray(ins["A"].sum(axis=0)).ravel()
         for k, r in res["por_k"].items():
