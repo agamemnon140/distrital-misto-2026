@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E se 2026 tivesse sido distrital misto?</title>
+<link rel="stylesheet" href="estilo.css">
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<script src="js/aloca.js"></script>
+</head>
+<body>
+<div class="viz-root">
+<header>
+  <h1>E se 2026 tivesse sido distrital misto?</h1>
+  <p class="sub">Os votos reais para deputado federal de 4 de outubro de 2026, recontados como se metade da Câmara
+    saísse de distritos de um eleito só e a outra metade de listas partidárias. Cada estado foi redesenhado em
+    50 mapas diferentes; o resultado é a mediana entre eles.</p>
+</header>
+
+<nav class="abas" role="tablist">
+  <button role="tab" data-aba="resultado" aria-selected="true">Resultado</button>
+  <button role="tab" data-aba="mapas" aria-selected="false">Mapas</button>
+  <button role="tab" data-aba="metodo" aria-selected="false">Método</button>
+</nav>
+
+<section class="filtros" aria-label="Premissas da simulação">
+  <label>Modelo
+    <select id="f-modelo">
+      <option value="paralelo">Paralelo 50/50</option>
+      <option value="compensatorio">Compensatório (alemão)</option>
+    </select>
+  </label>
+  <label>Cadeiras por estado
+    <select id="f-rateio">
+      <option value="atual">Atual (piso 8, teto 70)</option>
+      <option value="sem_teto">Sem teto (piso 8)</option>
+      <option value="puro">Proporcional puro (piso 1)</option>
+    </select>
+  </label>
+  <label>Regra da lista
+    <select id="f-regra">
+      <option value="brasil">Brasileira 2026 (QE, 80/20, sobras)</option>
+      <option value="dhondt">D'Hondt puro</option>
+    </select>
+  </label>
+  <label id="l-exc">Excedentes
+    <select id="f-exc">
+      <option value="2023">Regra alemã 2023 (Casa fixa)</option>
+      <option value="antiga">Excedentes + nivelamento</option>
+    </select>
+  </label>
+  <label class="faixa">Fidelidade ao partido α <output id="o-alfa"></output>
+    <input id="f-alfa" type="range" min="0.5" max="1" step="0.05">
+  </label>
+  <label class="faixa">Voto útil β <output id="o-beta"></output>
+    <input id="f-beta" type="range" min="0" max="0.5" step="0.05">
+  </label>
+  <button id="f-reset" class="fantasma" type="button">Voltar ao padrão</button>
+</section>
+
+<main>
+<!-- ============================================================ RESULTADO -->
+<section id="aba-resultado" class="aba">
+  <div id="carregando" class="nota">Carregando os 27 estados…</div>
+  <div class="tiles" id="tiles"></div>
+
+  <div class="cartao">
+    <h2 id="h-hemi">Câmara simulada</h2>
+    <p class="nota" id="n-hemi"></p>
+    <div id="hemi"></div>
+    <div class="legenda" id="leg-hemi"></div>
+  </div>
+
+  <div class="cartao">
+    <h2>Cadeiras por partido</h2>
+    <p class="nota">Mediana dos 50 mapas. A linha cinza vai do 10º ao 90º percentil do modelo escolhido.
+      <span class="chave"><svg width="12" height="12"><circle cx="6" cy="6" r="4.5" class="m-par"/></svg> paralelo</span>
+      <span class="chave"><svg width="12" height="12"><circle cx="6" cy="6" r="4" class="m-comp"/></svg> compensatório</span>
+      <span class="chave"><svg width="12" height="12"><line x1="6" x2="6" y1="0" y2="12" class="m-real"/></svg> eleitos de verdade em 2026</span></p>
+    <table class="tabela" id="t-partidos">
+      <thead><tr><th>Partido</th><th class="graf"></th><th class="n">Paralelo</th><th class="n">Compensatório</th>
+        <th class="n">Real 2026</th><th class="n" id="th-delta">Δ</th><th class="n">Distritos</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="cartao">
+    <h2>Estado por estado</h2>
+    <div class="linha">
+      <label>Estado <select id="f-uf-res"></select></label>
+      <label>Mapa <select id="f-mapa-res"></select></label>
+    </div>
+    <div class="duas">
+      <div><h3 id="h-uf-part"></h3><table class="tabela" id="t-uf-partidos"><thead><tr><th>Partido</th>
+        <th class="n">Distritos</th><th class="n">Lista</th><th class="n">Total</th><th class="n">Real</th></tr></thead><tbody></tbody></table></div>
+      <div><h3>Distritos deste mapa</h3><table class="tabela" id="t-uf-dist"><thead><tr><th>#</th><th>Eleito</th>
+        <th class="n">Votos</th><th class="n">Margem</th><th>2º lugar</th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <h3>Eleitos pela lista</h3>
+    <p id="lista-uf" class="lista"></p>
+  </div>
+</section>
+
+<!-- ============================================================ MAPAS -->
+<section id="aba-mapas" class="aba" hidden>
+  <div class="linha">
+    <label>Estado <select id="f-uf-map"></select></label>
+    <label class="faixa">Mapa <output id="o-mapa"></output>
+      <input id="f-mapa" type="range" min="0" max="49" step="1" value="0"></label>
+    <button id="b-ant" class="fantasma" type="button">◀</button><button id="b-prox" class="fantasma" type="button">▶</button>
+    <label>Camada
+      <select id="f-camada">
+        <option value="vencedor">Vencedor do distrito (campo)</option>
+        <option value="lula">2º turno 2026 (% Lula)</option>
+        <option value="pop">População (desvio da média)</option>
+        <option value="aptos">Eleitorado (desvio da média)</option>
+        <option value="instavel">Quanto o desenho muda o vencedor</option>
+      </select>
+    </label>
+    <span id="zooms"></span>
+  </div>
+  <div class="mapa-grade">
+    <div class="cartao mapa-cartao">
+      <svg id="mapa" role="img" aria-label="Mapa dos distritos"></svg>
+      <div class="legenda" id="leg-mapa"></div>
+      <p class="nota" id="n-mapa"></p>
+    </div>
+    <div class="cartao">
+      <h2>O que muda entre os 50 mapas</h2>
+      <p class="nota" id="n-dif"></p>
+      <div id="dif"></div>
+    </div>
+  </div>
+  <div class="cartao">
+    <h2 id="h-tab-dist">Distritos</h2>
+    <table class="tabela" id="t-dist"><thead><tr><th>#</th><th class="n">Eleitorado</th><th class="n">Desvio</th>
+      <th class="n">População</th><th class="n">Lula 2º T</th><th>Eleito</th><th class="n">Votos</th><th class="n">Margem</th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<!-- ============================================================ METODO -->
+<section id="aba-metodo" class="aba" hidden>
+  <div class="cartao texto" id="metodo"></div>
+  <div class="cartao">
+    <h2>Campo político de cada agremiação (usado só pelo voto útil)</h2>
+    <p class="nota">Dá para trocar aqui; o resultado é recalculado na hora. A tabela padrão está em <code>config/campos.json</code>.</p>
+    <table class="tabela" id="t-campos"><thead><tr><th>Agremiação</th><th>Campo</th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+</main>
+<div id="dica" class="dica" hidden></div>
+<footer>Dados: TSE (votação por seção, candidatos e destino dos votos, 2026; partido por zona, 2024), IBGE (Censo 2022, malha municipal).
+  Código: <a href="https://github.com/agamemnon140/distrital-misto-2026">agamemnon140/distrital-misto-2026</a>.</footer>
+</div>
+<script src="js/app.js"></script>
+</body>
+</html>
