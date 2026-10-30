@@ -36,8 +36,8 @@
 
   const GAMA_PADRAO = 0.5;
   const COORD_PADRAO = "media";
-  const MODELOS = ["paralelo", "compensatorio", "lista"];
-  const NOME_MODELO = { paralelo: "paralelo", compensatorio: "compensatório", lista: "só lista fechada" };
+  const MODELOS = ["paralelo", "compensatorio", "lista", "duelo"];
+  const NOME_MODELO = { paralelo: "paralelo", compensatorio: "compensatório", lista: "só lista fechada", duelo: "dois candidatos" };
   const S = {
     base: null, cal: null, distPor: {}, pos: [], dist: {}, geo: {}, mapas: {},
     p: null, padrao: null, campoDe: [], resultado: null, aba: "resultado",
@@ -232,12 +232,13 @@
         const par = R.modelos.paralelo.porMapa.map(x => R.tot(x, p));
         const comp = R.modelos.compensatorio.porMapa.map(x => R.tot(x, p));
         const lst = R.modelos.lista.porMapa.map(x => R.tot(x, p));
+        const duo = R.modelos.duelo.porMapa.map(x => R.tot(x, p));
         const s = sel.porMapa.map(x => R.tot(x, p));
         // distritos ganhos: no modelo so de lista, mostra quantos o partido ganharia no paralelo
         const dis = (S.p.modelo === "lista" ? R.modelos.paralelo : sel).porMapa.map(x => x.partido[p] ? x.partido[p].d : 0);
-        return { p, par: med(par), comp: med(comp), lst: med(lst), lo: Aloca.quantil(s, .1), hi: Aloca.quantil(s, .9),
+        return { p, par: med(par), comp: med(comp), lst: med(lst), duo: med(duo), lo: Aloca.quantil(s, .1), hi: Aloca.quantil(s, .9),
                  sel: med(s), real: real[p] || 0, dis: med(dis) };
-      }).filter(l => l.par || l.comp || l.lst || l.real).sort((a, b) => (b.sel - a.sel) || (b.real - a.real));
+      }).filter(l => l.par || l.comp || l.lst || l.duo || l.real).sort((a, b) => (b.sel - a.sel) || (b.real - a.real));
 
     // tiles
     const casa = med(sel.porMapa.map(x => x.total));
@@ -256,7 +257,7 @@
         : tile("Distritos", `${k}`, `${sigla(topDis.p)} vence ${fmtMed(topDis.dis)} (${pct(topDis.dis / k, 0)})`),
       tile("Cadeiras de lista", `${fmtMed(casa - distritais)}`, sem ? `${fmtMed(sem)} distritos ficam sem eleito (regra 2023)` :
         lista ? "lista fechada por estado, na ordem do voto nominal" :
-        S.p.modelo === "paralelo" ? "metade proporcional, por estado" : "completam a proporção de cada partido"),
+        S.p.modelo === "compensatorio" ? "completam a proporção de cada partido" : "metade proporcional, por estado"),
       tile("Votos nos dois primeiros", pct(top2, 0), `média dos distritos · prefeituras de 60 a 170 mil eleitores: ${pct(S.cal.top2_observado, 0)}`),
       tile("Tamanho da Câmara", `${fmtMed(casa)}`, casa > 513 ? "cresce com excedentes e nivelamento" : "513, como hoje"),
     ].join("");
@@ -264,18 +265,19 @@
     desenhaHemiciclo();
 
     // tabela por partido com dot plot
-    const maxX = d3.max(linhas, l => Math.max(l.par, l.comp, l.lst, l.real, l.hi)) || 1;
+    const maxX = d3.max(linhas, l => Math.max(l.par, l.comp, l.lst, l.duo, l.real, l.hi)) || 1;
     const W = 320, H = 22;
     const x = d3.scaleLinear().domain([0, maxX]).range([6, W - 6]);
-    $("#th-delta").textContent = `Δ ${{ paralelo: "paralelo", compensatorio: "comp.", lista: "lista" }[S.p.modelo]}`;
+    $("#th-delta").textContent = `Δ ${{ paralelo: "paralelo", compensatorio: "comp.", lista: "lista", duelo: "2 cand." }[S.p.modelo]}`;
     const tb = d3.select("#t-partidos tbody").html("");
     for (const l of linhas) {
       const tr = tb.append("tr");
       tr.append("td").text(sigla(l.p));
       const svg = tr.append("td").append("svg").attr("width", W).attr("height", H).attr("viewBox", `0 0 ${W} ${H}`)
-        .attr("role", "img").attr("aria-label", `${sigla(l.p)}: paralelo ${fmtMed(l.par)}, compensatório ${fmtMed(l.comp)}, lista fechada ${fmtMed(l.lst)}, real ${l.real}`);
+        .attr("role", "img").attr("aria-label", `${sigla(l.p)}: paralelo ${fmtMed(l.par)}, compensatório ${fmtMed(l.comp)}, lista fechada ${fmtMed(l.lst)}, dois candidatos ${fmtMed(l.duo)}, real ${l.real}`);
       svg.append("line").attr("class", "m-faixa").attr("x1", x(l.lo)).attr("x2", x(l.hi)).attr("y1", H / 2).attr("y2", H / 2);
       svg.append("line").attr("class", "m-real").attr("x1", x(l.real)).attr("x2", x(l.real)).attr("y1", 2).attr("y2", H - 2);
+      svg.append("path").attr("class", "m-duelo").attr("transform", `translate(${x(l.duo)},${H / 2})`).attr("d", d3.symbol(d3.symbolTriangle, 48)());
       svg.append("rect").attr("class", "m-lista").attr("x", x(l.lst) - 4).attr("y", H / 2 - 4).attr("width", 8).attr("height", 8);
       svg.append("circle").attr("class", "m-comp").attr("cx", x(l.comp)).attr("cy", H / 2).attr("r", 4.5);
       svg.append("circle").attr("class", "m-par").attr("cx", x(l.par)).attr("cy", H / 2).attr("r", 4.5);
@@ -283,6 +285,7 @@
       tr.append("td").attr("class", "n").html(`${fmtMed(l.par)}`);
       tr.append("td").attr("class", "n").text(fmtMed(l.comp));
       tr.append("td").attr("class", "n").text(fmtMed(l.lst));
+      tr.append("td").attr("class", "n").text(fmtMed(l.duo));
       tr.append("td").attr("class", "n").text(l.real);
       tr.append("td").attr("class", "n").text((d > 0 ? "+" : d < 0 ? "−" : "") + fmtMed(Math.abs(d)));
       tr.append("td").attr("class", "n").text(fmtMed(l.dis));
@@ -373,7 +376,7 @@
       .attr("font-weight", 650).attr("fill", "var(--text-primary)").text(n);
     svg.append("text").attr("x", cx).attr("y", cy - 8).attr("text-anchor", "middle").attr("font-size", 12)
       .attr("fill", "var(--text-secondary)").text("cadeiras");
-    $("#h-hemi").textContent = `Câmara simulada — ${{ paralelo: "paralelo 50/50", compensatorio: "compensatório", lista: "só lista fechada" }[S.p.modelo]}`;
+    $("#h-hemi").textContent = `Câmara simulada — ${{ paralelo: "paralelo 50/50", compensatorio: "compensatório", lista: "só lista fechada", duelo: "dois candidatos por distrito" }[S.p.modelo]}`;
     $("#n-hemi").textContent = S.p.modelo === "lista"
       ? "Sem distritos: todo mundo sai de listas estaduais fechadas, na ordem da votação nominal de 2026. Cor: campo político do partido."
       : `Mapa ${R.rep + 1} de 50, o mais próximo da mediana. Bolinha cheia: eleito no distrito; anel: eleito pela lista. Cor: campo político do partido.`;
@@ -777,6 +780,7 @@
 
   function htmlCandidatos(uf, r, j) {
     const cs = S.base.uf[uf].cands, d = r.dist[j], v = r.vencedores[j];
+    if (d.duelo) return htmlDuelo(cs, d, v);
     const v2 = (x) => String(x).replace(".", ",");
     const correm = [...d.V.keys()].filter(i => d.cand[i] > -100).sort((a, b) => d.V[b] - d.V[a]);
     const sairam = [...d.V.keys()].filter(i => d.cand[i] <= -100).sort((a, b) => d.Tw[b] - d.Tw[a]);
@@ -810,6 +814,27 @@
         : S.p.afinidade === "espectro" ? `, pela distância no espectro (λ = ${v2(S.p.lambda)})` : ", por campo"}.
       Em toda escolha entre candidatos pesa também a popularidade de cada um (voto pessoal<sup>γ</sup>).
       "Aqui / total": quanto da votação real do candidato no estado veio deste distrito.</p>`;
+  }
+
+  // modelo de dois candidatos: o lado de cada um, o voto de presidente e a "primaria" pelo voto de deputado
+  function htmlDuelo(cs, d, v) {
+    const LADO = ["Lula", "Flávio Bolsonaro"];
+    const linhas = [d.venc, d.segundo].map((i, pos) => {
+      let ci = d.cand[i];
+      if (ci < 0 && i === d.venc && v.cand >= 0) ci = v.cand;
+      const c = ci >= 0 ? cs[ci] : null;
+      const nome = c ? `${esc(c[1])} <span class="faixa-txt">${sigla(c[2])}${S.base.agrs[d.agr[i]].partidos.length > 1 ? " · " + siglaAgr(d.agr[i]) : ""}</span>`
+        : `<i>${siglaAgr(d.agr[i])}</i> <span class="faixa-txt">sem candidato com voto aqui</span>`;
+      return `<tr${i === d.venc ? ' class="venc"' : ""}><td>${pos + 1}</td><td>${nome}</td><td>${LADO[i]}</td>` +
+        `<td class="n"><b>${num(d.V[i])}</b></td><td class="n">${pct(d.V[i] / d.tot)}</td>` +
+        `<td class="n">${num(d.T[i])}</td><td class="n">${c ? num(c[4]) : ""}</td><td>${c ? (c[5] ? "eleito" : "não eleito") : ""}</td></tr>`;
+    }).join("");
+    return `<table class="tabela sub"><thead><tr><th></th><th>Candidato</th><th>Lado</th><th class="n">Voto (2º turno de presidente)</th>
+      <th class="n">%</th><th class="n">Voto do partido para deputado aqui</th><th class="n">Total real no estado</th><th>Em 2026</th></tr></thead>
+      <tbody>${linhas}</tbody></table>
+      <p class="nota">Modelo de dois candidatos: o distrito vota como votou no 2º turno presidencial de 2026 (votos de Lula e de Flávio aqui).
+      Cada lado lança a agremiação com mais votos de deputado no distrito: esquerda pelo lado de Lula, centro e direita pelo de Flávio
+      (tabela de campos).</p>`;
   }
 
   // tr: linha do distrito; ncol: colunas da tabela; set: distritos abertos
@@ -958,6 +983,10 @@ as cadeiras excedentes e os outros ganham cadeiras de nivelamento até a propor�
 mesma de hoje (quociente eleitoral, quociente partidário, 80% do QE nas sobras), menos as duas cláusulas que dependem de voto nominal
 (10% e 20% do QE para o candidato), que deixam de existir. A ordem da lista é a votação nominal de 2026, então os nomes mudam pouco;
 o que muda é o número de cadeiras dos partidos que dependiam de um puxador.</li>
+<li><b>Dois candidatos por distrito</b> (teste de bipolarização): cada distrito tem só dois candidatos, um de cada lado do 2º turno presidencial,
+e vota exatamente como votou para presidente: vence o lado de Lula onde Lula teve mais votos que Flávio Bolsonaro. A esquerda forma o lado de Lula;
+centro e direita, o de Flávio (pela tabela de campos). Cada lado lança a agremiação com mais votos de deputado no distrito, como uma prévia, e o
+candidato dela. A lista é a do paralelo. Aqui α, γ, β, π, afinidade e coordenação não entram nos distritos.</li>
 </ul>
 <h2>Os quatro passos</h2>
 <p><b>1. Voto de lista.</b> É o total da agremiação no estado (votos nominais + legenda), exatamente a conta que define o quociente
