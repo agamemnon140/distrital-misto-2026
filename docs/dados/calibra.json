@@ -166,108 +166,108 @@
    "top2_sem_ajuste": 0.34
   },
   "com": {
-   "kappa": 0.3,
+   "kappa": 0.4,
    "beta": 0.0,
-   "pi": 0.0,
-   "top2_previsto": 0.841,
-   "erro": 0.0435,
-   "erro_kappa0": 0.0622,
+   "pi": 0.1,
+   "top2_previsto": 0.827,
+   "erro": 0.0598,
+   "erro_kappa0": 0.0607,
    "ic90_kappa": [
-    0.2,
-    0.4
+    0.0,
+    0.6
    ],
    "ic90_beta": [
     0.0,
     0.0
    ],
    "ic90_pi": [
-    0.0,
-    0.1
+    0.1,
+    0.2
    ]
   }
  },
  "espectro": {
   "sem": {
    "beta": 1.0,
-   "pi": 0.65,
-   "top2_previsto": 0.877,
+   "pi": 0.7,
+   "top2_previsto": 0.869,
    "ic90_beta": [
-    0.8,
+    0.4,
     1.0
    ],
    "ic90_pi": [
-    0.6,
-    0.7
+    0.7,
+    0.8
    ],
-   "lambda": 3.0,
+   "lambda": 1.0,
    "curva": [
     {
      "beta": 0.0,
      "pi": 0.8,
-     "erro_campo": 0.1894
+     "erro_campo": 0.1936
     },
     {
      "beta": 0.1,
      "pi": 0.8,
-     "erro_campo": 0.1897
+     "erro_campo": 0.1925
     },
     {
      "beta": 0.2,
      "pi": 0.8,
-     "erro_campo": 0.19
+     "erro_campo": 0.1933
     },
     {
      "beta": 0.3,
      "pi": 0.8,
-     "erro_campo": 0.1904
+     "erro_campo": 0.1931
     },
     {
      "beta": 0.4,
      "pi": 0.8,
-     "erro_campo": 0.1908
+     "erro_campo": 0.19
     },
     {
      "beta": 0.5,
-     "pi": 0.75,
-     "erro_campo": 0.1832
+     "pi": 0.8,
+     "erro_campo": 0.1916
     },
     {
      "beta": 0.6,
      "pi": 0.75,
-     "erro_campo": 0.1839
+     "erro_campo": 0.1848
     },
     {
      "beta": 0.7,
      "pi": 0.75,
-     "erro_campo": 0.1846
+     "erro_campo": 0.1871
     },
     {
      "beta": 0.8,
-     "pi": 0.7,
-     "erro_campo": 0.1799
+     "pi": 0.75,
+     "erro_campo": 0.1872
     },
     {
      "beta": 0.9,
-     "pi": 0.7,
-     "erro_campo": 0.1809
+     "pi": 0.75,
+     "erro_campo": 0.1859
     },
     {
      "beta": 1.0,
-     "pi": 0.65,
-     "erro_campo": 0.1772
+     "pi": 0.7,
+     "erro_campo": 0.1805
     }
    ],
    "top2_sem_ajuste": 0.34
   },
   "com": {
-   "kappa": 0.3,
+   "kappa": 0.2,
    "beta": 0.0,
-   "pi": 0.1,
-   "top2_previsto": 0.857,
-   "erro": 0.0434,
-   "erro_kappa0": 0.0607,
+   "pi": 0.2,
+   "top2_previsto": 0.844,
+   "erro": 0.0593,
+   "erro_kappa0": 0.0602,
    "ic90_kappa": [
-    0.2,
+    0.0,
     0.4
    ],
    "ic90_beta": [
@@ -275,10 +275,10 @@
     0.0
    ],
    "ic90_pi": [
-    0.0,
-    0.1
+    0.1,
+    0.2
    ],
-   "lambda": 10.0
+   "lambda": 1.0
   }
  },
  "top2_sem_ajuste": 0.34

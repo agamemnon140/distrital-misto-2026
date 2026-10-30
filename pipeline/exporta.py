@@ -25,7 +25,7 @@ import topojson as tp
 from .caminhos import APURACAO, RAIZ, SAIDA_WEB, TRAB, UFS
 from .candidatos import CAMPO, COR, FED, SIGLA
 from .mapas import ks_da_uf
-from .espectro import LIMIARES, posicoes
+from .espectro import NIVEIS, posicoes
 from .matrizes import GAMAS
 from .tijolos import locais_2026
 from .rateio import RATEIOS, populacao, rateios
@@ -70,7 +70,7 @@ def mapas_json(variante: dict, k: int, loc_agr: np.ndarray) -> list[dict]:
                 X = int(d["nom"][j, a] - own[j, a])
                 Xg = [int(x) for x in d["Xg"][:, j, a]] + [int(own[j, a])]
                 if pos < PODA_TOPO or T[a] >= PODA_FRACAO * tot:
-                    # cand = -2: retirou a candidatura por acordo com uma vizinha que concorre ali
+                    # cand = -2: retirou o partido do distrito por acordo com um vizinho que concorre ali
                     linha += [int(loc_agr[a]), int(T[a]), X, -2 if bloq[j, a] else int(esc[j, a])] + Xg
                 else:
                     outros += [int(T[a]), X] + Xg
@@ -160,7 +160,7 @@ def main() -> None:
     rt = rateios()
     base = {"agrs": ags,
             "partidos": {nr: {"sigla": s, "cor": COR[nr]} for nr, s in SIGLA.items()},
-            "rateios": rt, "nomes_rateio": RATEIOS, "gamas": list(GAMAS), "limiares": list(LIMIARES), "pop": populacao(), "ks": {}, "uf": {}}
+            "rateios": rt, "nomes_rateio": RATEIOS, "gamas": list(GAMAS), "niveis": NIVEIS, "pop": populacao(), "ks": {}, "uf": {}}
     for d in ("dist", "mapas", "geo"):
         (SAIDA_WEB / d).mkdir(parents=True, exist_ok=True)
     for uf in ufs:
@@ -178,8 +178,8 @@ def main() -> None:
                       zip(c["nr"], c["nome"], c["partido"], c["agr"], c["votos"], c["eleito_real"])],
         }
         (SAIDA_WEB / "dist" / f"{uf}.json").write_text(json.dumps(e["dist"], separators=(",", ":")), "utf-8")
-        for L, v in e["coord"].items():
-            pasta = SAIDA_WEB / f"dist_c{L:.1f}"
+        for nome, v in e["coord"].items():
+            pasta = SAIDA_WEB / f"dist_{nome}"
             pasta.mkdir(exist_ok=True)
             (pasta / f"{uf}.json").write_text(json.dumps(v, separators=(",", ":")), "utf-8")
         topo, tij = geo_uf(uf, ins)

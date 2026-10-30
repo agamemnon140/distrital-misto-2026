@@ -20,10 +20,11 @@ Dois desenhos, um para cada simulador:
     coordenacao tambem poe todo mundo na disputa). Alvo: a fatia dos dois primeiros, que sozinha
     nao separa os parametros (ha uma curva deles); entre os pontos da curva, fica o que erra menos
     a votacao de prefeito por campo.
-  com coordenacao: as coligacoes de verdade. O candidato a prefeito leva o voto do proprio partido
-    (e da federacao) e kappa do voto dos partidos coligados; o resto se espalha. Depois vem
-    beta/pi. Alvo: a votacao de cada candidato (erro quadratico das fatias). kappa e a fracao do
-    eleitor do aliado que segue o candidato do acordo.
+  com coordenacao: as coligacoes de verdade dizem quem se retirou. O candidato a prefeito leva o
+    voto do proprio partido (e da federacao); cada partido sem candidato passa kappa dos votos aos
+    candidatos por afinidade x tamanho (no espectro, e^-distancia/lambda; nos campos, e^-|campos|),
+    e o resto se espalha na proporcao do tamanho -- a mesma regra do simulador. Depois vem
+    beta/pi. Alvo: a votacao de cada candidato (erro quadratico das fatias).
 
 Saida: docs/dados/calibra.json
 """
@@ -42,7 +43,7 @@ from .espectro import notas
 
 GRADE_FINA = np.round(np.arange(0, 1.0001, 0.05), 2)
 GRADE = np.round(np.arange(0, 1.0001, 0.1), 2)
-LAMBDAS = (0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0)
+LAMBDAS = (1.0,)          # alcance da afinidade: premissa (lambda = 1), nao calibrado
 FAIXAS = [0, 10_000, 30_000, 60_000, 100_000, 170_000]
 AMOSTRA = (60_000, 170_000)
 TOLERANCIA = 0.02          # ponto "na curva": fatia dos dois primeiros a ate 2 pp do observado
@@ -173,18 +174,17 @@ def cidades(d: pd.DataFrame) -> list[dict]:
                       if any(nr in nt for nr in agr[a]) else np.nan for a in ids])
         pc = np.array([POS.get(campo.get(a), -1) for a in ids])
         # desenho com coordenacao: as coligacoes de verdade
-        proprio, aliado, usados = [], [], set()
-        for cab, comp in zip(p["NR_PARTIDO"], p["DS_COMPOSICAO_COLIGACAO"]):
-            membros = {nr_da_sigla.get(sg) for sg in _siglas(comp)} | {cab}
-            membros.discard(None)
-            fed = {nr for nr in membros if cab in FED24 and FED24.get(nr) == FED24[cab]} | {cab}
+        proprio, cabecas = [], set()
+        for cab in p["NR_PARTIDO"]:
+            fed = {nr for nr in vp if cab in FED24 and FED24.get(nr) == FED24[cab]} | {cab}
             proprio.append(sum(vp.get(nr, 0) for nr in fed))
-            aliado.append(sum(vp.get(nr, 0) for nr in membros - fed))
-            usados |= membros
-        livre = sum(v for nr, v in vp.items() if nr not in usados)
+            cabecas |= fed
+        fora = sorted(nr for nr in vp if nr not in cabecas)          # partidos sem candidato a prefeito
         out.append({"aptos": n, "top2": float(np.sort(so)[-2:].sum()), "ncand": len(p), "fo": fo,
                     "s": s, "x": x, "pc": pc,
-                    "c_proprio": np.array(proprio) / tot, "c_aliado": np.array(aliado) / tot, "c_livre": livre / tot,
+                    "c_base": np.array(proprio) / tot, "w_v": np.array([vp[nr] for nr in fora]) / tot,
+                    "w_x": np.array([nt.get(nr, np.nan) for nr in fora]),
+                    "w_pc": np.array([POS.get(campo.get(FED24.get(nr, nr)), -1) for nr in fora]),
                     "c_obs": so, "c_pc": np.array([POS.get(campo.get(nr), -1) for nr in p["NR_PARTIDO"]]),
                     "c_x": np.array([nt.get(nr, np.nan) for nr in p["NR_PARTIDO"]])})
     return out
@@ -242,10 +242,21 @@ def com_coordenacao(cs: list[dict], espectro: bool) -> dict:
     E = np.zeros((len(cs), len(combos)))
     T2 = np.zeros_like(E)
     for k, c in enumerate(cs):
+        base = c["c_base"]
+        prop = c["w_v"].sum() * base / base.sum()
+        aff = {}
+        for lam in lams:
+            if espectro:
+                K = np.exp(-np.abs(c["w_x"][:, None] - c["c_x"][None, :]) / (lam or 1.0))
+            else:
+                K = np.exp(-np.abs(c["w_pc"][:, None] - c["c_pc"][None, :]).astype(float))
+                K[(c["w_pc"][:, None] < 0) | (c["c_pc"][None, :] < 0)] = 0
+            K = np.nan_to_num(K) * base[None, :]
+            soma = K.sum(1, keepdims=True)
+            peso = np.where(soma > 0, K / np.where(soma > 0, soma, 1), base[None, :] / base.sum())
+            aff[lam] = (c["w_v"][:, None] * peso).sum(0)
         for n_, (ka, b, p, lam) in enumerate(combos):
-            base = c["c_proprio"] + ka * c["c_aliado"]
-            solto = (1 - ka) * c["c_aliado"].sum() + c["c_livre"]
-            s = base + solto * base / base.sum() if base.sum() > 0 else base
+            s = base + ka * aff[lam] + (1 - ka) * prop
             V = modelo(s, c["c_pc"], b, p, c["c_x"] if espectro else None, lam or 1.0)
             V = V / V.sum()
             E[k, n_] = ((V - c["c_obs"]) ** 2).sum()

@@ -57,7 +57,8 @@ const pos = base.agrs.map(a => a.pos);
 const cenarios = [
   ["dist", { afinidade: "campos", beta: 1, pi: 0.4 }],
   ["dist", { afinidade: "espectro", beta: 0.7, pi: 0.4, lambda: 1.5 }],
-  ...base.limiares.map(L => [`dist_c${L.toFixed(1)}`, { afinidade: "espectro", beta: 0.3, pi: 0.3, lambda: 1, kappa: 0.4, limiar: L }]),
+  ...Object.keys(base.niveis).map(nv => [`dist_${nv}`, { afinidade: "espectro", beta: 0.3, pi: 0.3, lambda: 1, kappa: 0.4 }]),
+  ["dist_media", { afinidade: "campos", beta: 0.3, pi: 0.3, kappa: 0.4 }],
 ];
 for (const [pasta, extra] of cenarios) {
   for (const uf of ["SP", "AC", "MG"]) {
@@ -66,7 +67,7 @@ for (const [pasta, extra] of cenarios) {
     for (const flat of du[k][0].d) {
       const passo = 5 + base.gamas.length;
       let T = 0; for (let i = 1; i < flat.length; i += passo) T += flat[i];
-      const d = A.distrito(flat, { alfa: 0.7, gama: 0.5, campoDe, gamas: base.gamas, pos, posCoord: pos, ...extra });
+      const d = A.distrito(flat, { alfa: 0.7, gama: 0.5, campoDe, gamas: base.gamas, pos, ...extra });
       ok(Math.abs(d.tot - T) < 1e-6 * T, `${pasta} ${uf}: distrito nao conserva votos`);
       d.V.forEach((v, i) => {
         ok(Math.abs(d.P[i] + d.L[i] + d.H[i] + d.R[i] + d.A[i] + d.U[i] - v) < 1e-6 * T, `${pasta} ${uf}: decomposicao nao fecha`);
@@ -78,21 +79,26 @@ for (const [pasta, extra] of cenarios) {
   }
 }
 
-// 6) coordenacao: nenhuma dupla de vizinhas (ate o limiar) concorre no mesmo distrito
-for (const L of base.limiares) {
+// 6) coordenacao: nenhum par de candidatos que concorrem no mesmo distrito "se atrapalha" -- o voto
+// pessoal (P / total do distrito) do mais fraco fica abaixo de t0 * (t2/t0)^(distancia/2)
+for (const [nv, [t0, t2]] of Object.entries(base.niveis)) {
   let pares = 0;
   for (const uf of Object.keys(base.uf)) {
-    const du = JSON.parse(fs.readFileSync(path.join(D, `dist_c${L.toFixed(1)}`, uf + ".json"), "utf8"));
+    const du = JSON.parse(fs.readFileSync(path.join(D, `dist_${nv}`, uf + ".json"), "utf8"));
     for (const k of Object.keys(du)) for (const mapa of du[k]) for (const flat of mapa.d) {
       const passo = 5 + base.gamas.length, correm = [];
-      for (let o = 0; o < flat.length; o += passo) if (flat[o + 3] >= 0 && flat[o] >= 0) correm.push(flat[o]);
+      let tot = 0;
+      for (let o = 0; o < flat.length; o += passo) tot += flat[o + 1];
+      for (let o = 0; o < flat.length; o += passo) if (flat[o + 3] >= 0 && flat[o] >= 0) correm.push([flat[o], flat[o + passo - 1] / tot]);
       for (let a = 0; a < correm.length; a++) for (let b = a + 1; b < correm.length; b++) {
-        const pa = pos[correm[a]], pb = pos[correm[b]];
-        if (pa != null && pb != null && Math.abs(pa - pb) <= L + 1e-9) pares++;
+        const pa = pos[correm[a][0]], pb = pos[correm[b][0]];
+        if (pa == null || pb == null) continue;
+        const lim = t0 * Math.pow(t2 / t0, Math.abs(pa - pb) / 2);
+        if (Math.min(correm[a][1], correm[b][1]) >= lim * (1 + 1e-3)) pares++;   // folga: posicao da federacao arredondada no base.json
       }
     }
   }
-  ok(pares === 0, `limiar ${L}: ${pares} pares de vizinhas no mesmo distrito`);
+  ok(pares === 0, `coordenacao ${nv}: ${pares} pares que se atrapalham no mesmo distrito`);
 }
 console.log(falhas ? `${falhas} falha(s)` : "tudo certo");
 process.exit(falhas ? 1 : 0);

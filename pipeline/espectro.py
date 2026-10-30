@@ -3,8 +3,12 @@
 Notas por partido: config/espectro.json (pesquisa com especialistas, rodada 2022). A federacao fica
 na media das suas siglas ponderada pelo voto para deputado federal de 2026 no pais.
 
-Coordenacao: duas agremiacoes sao "vizinhas" -- e dividem os distritos em vez de lancar candidato
-forte no mesmo -- quando estao a ate LIMIAR pontos uma da outra.
+Coordenacao: dois candidatos "se atrapalham" num distrito quando o mais fraco dos dois tem voto
+pessoal ali (fracao do distrito) acima de um limite que cresce com a distancia entre os partidos:
+    limite(d) = t0 * (t2 / t0) ** (d / 2)
+t0 = limite na distancia 0 (so um nome muito fraco convive com o partido-irmao) e t2 = limite na
+distancia 2 (so se os dois forem realmente fortes). Quem e barrado por um partido a ate `dw` pontos
+retira o partido do distrito; mais longe, o partido pode lancar um nome fraco que nao atrapalhe.
 """
 from __future__ import annotations
 
@@ -15,7 +19,14 @@ import pandas as pd
 
 from .caminhos import RAIZ, TRAB
 
-LIMIARES = (1.0, 1.5, 2.1, 2.5)
+# intensidade da coordenacao: (t0, t2, dw)
+# media: Samia (5,2% pessoal) x Tabata (6,6%), a 2,07 pontos, se atrapalham; Tabata x um nome do PT
+# com 1-2% pessoal, nao
+NIVEIS = {"baixa": (0.015, 0.06, 0.5), "media": (0.01, 0.04, 1.0), "alta": (0.007, 0.025, 1.5)}
+
+
+def limite(d: float, t0: float, t2: float) -> float:
+    return t0 * (t2 / t0) ** (d / 2)
 
 
 @lru_cache(maxsize=1)
@@ -37,12 +48,6 @@ def posicoes() -> dict[str, float]:
         peso = sum(votos.get(nr, 0) for nr in membros)
         out[fed] = sum(nt[nr] * votos.get(nr, 0) for nr in membros) / peso
     return out
-
-
-def vizinhas(limiar: float) -> set[frozenset]:
-    pos = posicoes()
-    ids = sorted(pos)
-    return {frozenset((a, b)) for i, a in enumerate(ids) for b in ids[i + 1:] if abs(pos[a] - pos[b]) <= limiar}
 
 
 if __name__ == "__main__":

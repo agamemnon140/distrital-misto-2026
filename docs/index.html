@@ -72,16 +72,15 @@
   <label class="faixa" id="l-lambda" title="Distância no espectro em que a afinidade cai a 37% (e^−1)">Alcance da afinidade λ <output id="o-lambda"></output>
     <input id="f-lambda" type="range" min="0.25" max="10" step="0.25">
   </label>
-  <label title="Vizinhos no espectro dividem os distritos em vez de lançar candidatos fortes no mesmo">Coordenação entre vizinhos
+  <label title="Candidatos fortes de partidos próximos no espectro não disputam o mesmo distrito; quanto mais próximos, menor a força que já atrapalha">Coordenação entre vizinhos
     <select id="f-coord">
-      <option value="0">Nenhuma</option>
-      <option value="1">Até 1,0 ponto</option>
-      <option value="1.5">Até 1,5 ponto</option>
-      <option value="2.1">Até 2,1 pontos (junta PSOL e PSB)</option>
-      <option value="2.5">Até 2,5 pontos</option>
+      <option value="nenhuma">Nenhuma</option>
+      <option value="baixa">Baixa</option>
+      <option value="media">Média</option>
+      <option value="alta">Alta</option>
     </select>
   </label>
-  <label class="faixa" id="l-kappa" title="Fração do eleitor do partido que se retirou que vota no vizinho do acordo">Adesão ao acordo κ <output id="o-kappa"></output>
+  <label class="faixa" id="l-kappa" title="Fração do eleitor do partido que saiu do distrito que vota por afinidade (o resto se espalha)">Adesão ao acordo κ <output id="o-kappa"></output>
     <input id="f-kappa" type="range" min="0" max="1" step="0.05">
   </label>
   <button id="f-reset" class="fantasma" type="button">Voltar ao padrão</button>
@@ -177,8 +176,8 @@
     <p class="nota">Campo (modo "campos fixos") e nota no espectro de 0 a 10 (modo "espectro"; especialistas, rodada 2022). Dá para trocar aqui;
       o voto útil e a polarização são recalculados na hora. A divisão dos distritos entre vizinhos (coordenação) é calculada antes, com as notas
       originais, e não muda com a edição. Padrões em <code>config/campos.json</code> e <code>config/espectro.json</code>.</p>
-    <table class="tabela" id="t-campos" style="max-width:640px"><thead><tr><th>Agremiação</th><th>Campo</th><th class="n">Espectro (0–10)</th>
-      <th>Vizinhos que coordenam (até ${L})</th></tr></thead><tbody></tbody></table>
+    <table class="tabela" id="t-campos" style="max-width:520px"><thead><tr><th>Agremiação</th><th>Campo</th><th class="n">Espectro (0–10)</th>
+      </tr></thead><tbody></tbody></table>
   </div>
 </section>
 </main>
