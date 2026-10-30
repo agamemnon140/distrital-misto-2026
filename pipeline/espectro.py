@@ -3,9 +3,10 @@
 Notas por partido: config/espectro.json (pesquisa com especialistas, rodada 2022). A federacao fica
 na media das suas siglas ponderada pelo voto para deputado federal de 2026 no pais.
 
-Coordenacao: dois candidatos "se atrapalham" num distrito quando o mais fraco dos dois tem voto
-esperado ali (como candidato do partido: proprio + legenda + o que herda dos colegas; fracao do
-distrito) acima de um limite que cresce com a distancia entre os partidos:
+Coordenacao: dois candidatos "se atrapalham" num distrito quando a forca do mais fraco dos dois --
+voto esperado ali como candidato do partido (proprio + legenda + o que herda dos colegas) mais o voto
+pessoal de novo, em fracao do distrito -- passa de um limite que cresce com a distancia entre os
+partidos:
     limite(d) = t0 * (t2 / t0) ** (d / 2)
 t0 = limite na distancia 0 (so um nome muito fraco convive com o partido-irmao) e t2 = limite na
 distancia 2 (so se os dois forem realmente fortes). Quem e barrado por um partido a ate `dw` pontos
