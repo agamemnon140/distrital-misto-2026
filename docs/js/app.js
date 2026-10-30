@@ -54,7 +54,7 @@
     S.campoDe = base.agrs.map(a => a.campo);
     S.pos = base.agrs.map(a => a.pos);
     S.padrao = { rateio: "atual", modelo: "paralelo", regra: "dhondt", alfa: 0.7, gama: GAMA_PADRAO,
-                 afinidade: "turno2", coord: COORD_PADRAO, excedentes: "2023" };
+                 afinidade: "turno2", coord: COORD_PADRAO, cand: "guloso", excedentes: "2023" };
     Object.assign(S.padrao, calibrados(S.padrao));
     S.p = { ...S.padrao };
     lerHash();
@@ -69,10 +69,11 @@
     return { beta: s.beta, pi: s.pi, lambda: s.lambda || 1, kappa: S.cal.turno2.com.kappa };
   }
 
-  // distritos da variante ativa (sem coordenacao ou com uma intensidade); cada uma e baixada uma vez
-  const pastaDist = (coord) => coord === "nenhuma" ? "dist" : `dist_${coord}`;
+  // distritos da variante ativa (sem coordenacao, com uma intensidade ou "so onde mora", que nao
+  // coordena); cada uma e baixada uma vez
+  const pastaDist = (p) => p.cand === "mora" ? "dist_mora" : p.coord === "nenhuma" ? "dist" : `dist_${p.coord}`;
   async function carregaDist() {
-    const pasta = pastaDist(S.p.coord);
+    const pasta = pastaDist(S.p);
     if (!S.distPor[pasta]) {
       const aviso = $("#carregando");
       aviso.hidden = false;
@@ -131,7 +132,7 @@
   // ------------------------------------------------------------------ hash (estado compartilhavel)
   function escreveHash() {
     const p = S.p;
-    const h = `m=${p.modelo}&r=${p.rateio}&l=${p.regra}&a=${p.alfa}&g=${p.gama}&b=${p.beta}&p=${p.pi}&af=${p.afinidade}&co=${p.coord}&la=${p.lambda}&ka=${p.kappa}&e=${p.excedentes}&t=${S.aba}&uf=${S.ufMap}&n=${S.mapa}&c=${S.camada}${zoomAtual ? "&z=" + encodeURIComponent(zoomAtual) : ""}${buscado ? "&dep=" + encodeURIComponent(buscado.rotulo) : ""}`;
+    const h = `m=${p.modelo}&r=${p.rateio}&l=${p.regra}&a=${p.alfa}&g=${p.gama}&b=${p.beta}&p=${p.pi}&af=${p.afinidade}&co=${p.coord}&ca=${p.cand}&la=${p.lambda}&ka=${p.kappa}&e=${p.excedentes}&t=${S.aba}&uf=${S.ufMap}&n=${S.mapa}&c=${S.camada}${zoomAtual ? "&z=" + encodeURIComponent(zoomAtual) : ""}${buscado ? "&dep=" + encodeURIComponent(buscado.rotulo) : ""}`;
     history.replaceState(null, "", "#" + h);
   }
   function lerHash() {
@@ -140,7 +141,8 @@
     const set = (campo, v) => { if (v !== undefined && v !== "" && !Number.isNaN(v)) S.p[campo] = v; };
     set("modelo", g("m", String)); set("rateio", g("r", String)); set("regra", g("l", String));
     set("alfa", g("a", Number)); set("beta", g("b", Number)); set("excedentes", g("e", String));
-    set("afinidade", g("af", String)); set("coord", g("co", String));
+    set("afinidade", g("af", String)); set("coord", g("co", String)); set("cand", g("ca", String));
+    if (!["guloso", "mora"].includes(S.p.cand)) S.p.cand = "guloso";
     if (!S.cal[S.p.afinidade] || (S.p.coord !== "nenhuma" && !S.base.niveis[S.p.coord])) { S.p.afinidade = S.padrao.afinidade; S.p.coord = S.padrao.coord; }
     Object.assign(S.p, calibrados(S.p));
     set("gama", g("g", Number)); set("pi", g("p", Number)); set("beta", g("b", Number));
@@ -156,14 +158,15 @@
   function sincronizaFiltros() {
     $("#f-modelo").value = S.p.modelo; $("#f-rateio").value = S.p.rateio; $("#f-regra").value = S.p.regra;
     $("#f-exc").value = S.p.excedentes;
-    $("#f-afin").value = S.p.afinidade; $("#f-coord").value = String(S.p.coord);
+    $("#f-afin").value = S.p.afinidade; $("#f-coord").value = String(S.p.coord); $("#f-cand").value = S.p.cand;
     for (const c of ["alfa", "gama", "beta", "pi", "lambda", "kappa"]) {
       $("#f-" + c).value = S.p[c];
       $("#o-" + c).textContent = S.p[c].toFixed(2).replace(".", ",");
     }
     const liga = (id, on) => { $("#l-" + id).classList.toggle("desligado", !on); $("#f-" + id).disabled = !on; };
     liga("lambda", S.p.afinidade !== "campos");
-    liga("kappa", S.p.coord !== "nenhuma");
+    liga("kappa", S.p.coord !== "nenhuma" && S.p.cand !== "mora");
+    liga("coord", S.p.cand !== "mora");     // so onde mora: ninguem evita conflito
     $("#l-exc").classList.toggle("desligado", S.p.modelo !== "compensatorio");
     $("#f-exc").disabled = S.p.modelo !== "compensatorio";
   }
@@ -190,6 +193,7 @@
     };
     $("#f-afin").onchange = e => trocaModo("afinidade", e.target.value);
     $("#f-coord").onchange = e => trocaModo("coord", e.target.value);
+    $("#f-cand").onchange = e => trocaModo("cand", e.target.value);
     $("#f-reset").onclick = async () => {
       S.p = { ...S.padrao }; S.campoDe = S.base.agrs.map(a => a.campo); S.pos = S.base.agrs.map(a => a.pos);
       sincronizaFiltros(); await carregaDist(); simula(); desenha();
@@ -782,9 +786,10 @@
     const cs = S.base.uf[uf].cands, d = r.dist[j], v = r.vencedores[j];
     if (d.duelo) return htmlDuelo(cs, d, v);
     const v2 = (x) => String(x).replace(".", ",");
-    const correm = [...d.V.keys()].filter(i => d.cand[i] > -100).sort((a, b) => d.V[b] - d.V[a]);
+    const correm = [...d.V.keys()].filter(i => d.cand[i] > -100 && d.cand[i] !== -2).sort((a, b) => d.V[b] - d.V[a]);
     const sairam = [...d.V.keys()].filter(i => d.cand[i] <= -100).sort((a, b) => d.Tw[b] - d.Tw[a]);
-    const temAcordo = sairam.length > 0;
+    const semMorador = [...d.V.keys()].filter(i => d.cand[i] === -2).sort((a, b) => d.Tw[b] - d.Tw[a]);
+    const temAcordo = sairam.length + semMorador.length > 0;
     const linhas = correm.map((i, pos) => {
       let ci = d.cand[i];
       if (ci < 0 && i === d.venc && v.cand >= 0) ci = v.cand;     // vencedor sem base local: o "generico"
@@ -804,10 +809,13 @@
     const retirados = sairam.length ? `<p class="nota"><b>Saíram deste distrito por acordo</b>, em favor de um vizinho próximo no espectro
       que é mais forte aqui: ${sairam.map(i => `${siglaAgr(d.agr[i])} (${num(d.Tw[i])} votos em 2026 aqui) em favor de ${siglaAgr(-d.cand[i] - 100)}`).join("; ")}.
       ${pct(S.p.kappa, 0)} desses votos seguem a indicação; o resto vai para quem concorre por afinidade × tamanho × popularidade (coluna "Acordo").</p>` : "";
+    const naoMoram = semMorador.length ? `<p class="nota"><b>Sem candidato que more aqui</b> (só concorre quem tem aqui o seu maior voto pessoal):
+      ${semMorador.map(i => `${siglaAgr(d.agr[i])} (${num(d.Tw[i])} votos em 2026 aqui)`).join(", ")}. Esses votos vão para quem concorre por
+      afinidade × tamanho × popularidade (coluna "Sem candidato").</p>` : "";
     return `<table class="tabela sub"><thead><tr><th></th><th>Candidato</th><th class="n">Voto próprio aqui</th><th class="n">Legenda</th>
-      <th class="n">Herdado de colegas</th>${temAcordo ? '<th class="n">Acordo</th>' : ""}<th class="n">De outros partidos</th><th class="n">Voto útil e polarização</th>
+      <th class="n">Herdado de colegas</th>${temAcordo ? `<th class="n">${sairam.length ? "Acordo" : "Sem candidato"}</th>` : ""}<th class="n">De outros partidos</th><th class="n">Voto útil e polarização</th>
       <th class="n">Simulado</th><th class="n">%</th><th class="n">Total real no estado</th><th class="n">Aqui / total</th><th>Em 2026</th></tr></thead>
-      <tbody>${linhas}</tbody></table>${retirados}
+      <tbody>${linhas}</tbody></table>${retirados}${naoMoram}
       <p class="nota">Voto próprio, legenda e total real são votos de verdade de 2026. "Herdado de colegas" é o que ele leva dos colegas de partido
       que não concorrem aqui (α = ${v2(S.p.alfa)}, γ = ${v2(S.p.gama)}); "De outros partidos" é o que chega do voto que os outros não herdaram;
       a última etapa é o voto útil (β) e a polarização (π)${S.p.afinidade === "turno2" ? `, pelo comportamento do eleitor de cada partido no 2º turno neste estado (λ = ${v2(S.p.lambda)})`
@@ -988,6 +996,11 @@ e vota exatamente como votou para presidente: vence o lado de Lula onde Lula tev
 centro e direita, o de Flávio (pela tabela de campos). Cada lado lança a agremiação com mais votos de deputado no distrito, como uma prévia, e o
 candidato dela. A lista é a do paralelo. Aqui α, γ, β, π, afinidade e coordenação não entram nos distritos.</li>
 </ul>
+<p><b>Onde cada um concorre.</b> No padrão, cada partido põe os seus nomes nos distritos em que eles são mais fortes (o emparelhamento abaixo).
+Na variante <b>só onde mora</b>, cada candidato só pode concorrer no distrito onde mora. O TSE não publica o endereço do candidato, então o
+domicílio é aproximado pelo distrito em que ele teve o maior voto pessoal (o seu reduto). Se dois nomes do mesmo partido moram no mesmo
+distrito, concorre o mais votado ali e o outro fica só na lista; partido sem ninguém morando no distrito não concorre, e o voto dele vai para
+quem concorre por afinidade × tamanho × popularidade. Não há coordenação: nomes fortes de partidos vizinhos que moram no mesmo distrito se enfrentam.</p>
 <h2>Os quatro passos</h2>
 <p><b>1. Voto de lista.</b> É o total da agremiação no estado (votos nominais + legenda), exatamente a conta que define o quociente
 partidário hoje. Federações (PT/PCdoB/PV, PSOL/Rede, PSDB/Cidadania, União/PP, PRD/Solidariedade) disputam como uma só,

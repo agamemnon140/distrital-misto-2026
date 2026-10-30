@@ -59,6 +59,7 @@ const cenarios = [
   ["dist", { afinidade: "espectro", beta: 0.7, pi: 0.4, lambda: 1.5 }],
   ...Object.keys(base.niveis).map(nv => [`dist_${nv}`, { afinidade: "espectro", beta: 0.3, pi: 0.3, lambda: 1, kappa: 0.4 }]),
   ["dist_media", { afinidade: "campos", beta: 0.3, pi: 0.3, kappa: 0.4 }],
+  ["dist_mora", { afinidade: "espectro", beta: 0.3, pi: 0.3, lambda: 1 }],
 ];
 for (const [pasta, extra] of cenarios) {
   for (const uf of ["SP", "AC", "MG"]) {
@@ -73,7 +74,7 @@ for (const [pasta, extra] of cenarios) {
         ok(Math.abs(d.P[i] + d.L[i] + d.H[i] + d.R[i] + d.A[i] + d.U[i] - v) < 1e-6 * T, `${pasta} ${uf}: decomposicao nao fecha`);
         ok(d.L[i] >= 0 && d.P[i] >= 0, `${pasta} ${uf}: legenda ou voto proprio negativo`);
         if (d.cand[i] >= 0) ok(d.P[i] <= base.uf[uf].cands[d.cand[i]][4], `${pasta} ${uf}: voto proprio maior que o total`);
-        if (d.cand[i] <= -100) ok(v === 0, `${pasta} ${uf}: quem se retirou ainda tem voto`);
+        if (d.cand[i] <= -100 || d.cand[i] === -2) ok(v === 0, `${pasta} ${uf}: quem se retirou ainda tem voto`);
         if (d.cand[i] <= -100) ok(d.agr.some((a, q) => a === -d.cand[i] - 100 && d.cand[q] > -100), `${pasta} ${uf}: apoiado nao concorre`);
       });
     }
@@ -119,5 +120,23 @@ for (const [uf, u] of Object.entries(base.uf)) {
     ok(r.eleitosDistrito.length + r.eleitosLista.length === pp.S, `${uf}: dois candidatos nao fecha a bancada`);
   }
 }
+// 7) so onde mora: cada candidato concorre em um distrito so; todo distrito tem candidato; -2 so nessa variante
+for (const uf of Object.keys(base.uf)) {
+  const du = JSON.parse(fs.readFileSync(path.join(D, "dist_mora", uf + ".json"), "utf8"));
+  const passo = 5 + base.gamas.length;
+  for (const k of Object.keys(du)) for (const mapa of du[k]) {
+    const vistos = new Set();
+    for (const flat of mapa.d) {
+      let algum = false;
+      for (let o = 0; o < flat.length; o += passo) {
+        const c = flat[o + 3];
+        ok(c >= -2, `${uf}: acordo na variante so onde mora`);
+        if (c >= 0) { ok(!vistos.has(c), `${uf}: candidato em dois distritos`); vistos.add(c); algum = true; }
+      }
+      ok(algum, `${uf} k${k}: distrito sem nenhum candidato morador`);
+    }
+  }
+}
+
 console.log(falhas ? `${falhas} falha(s)` : "tudo certo");
 process.exit(falhas ? 1 : 0);

@@ -3,7 +3,8 @@
   base.json          agremiacoes, partidos, rateios (k por UF), candidatos e totais por UF, eleitos reais
   dist/{UF}.json     por k: para cada mapa e distrito, entradas [agr, T, X, cand, X_g1..X_g4, P] + metricas
                      (T = voto da agremiacao no distrito; X = voto nominal dos colegas que NAO
-                     concorrem ali; cand = indice do candidato emparelhado, -1 se nenhum; X_g = parte
+                     concorrem ali; cand = indice do candidato emparelhado, -1 se nenhum, -2 se nao concorre
+                     (so onde mora, sem morador), <= -100 se saiu por acordo; X_g = parte
                      de X que o candidato herda com gama = GAMAS, ver matrizes.py; P = voto nominal
                      proprio do candidato ali; a legenda e T - X - P)
   mapas/{UF}.json    por k: atribuicao tijolo -> distrito de cada mapa (string base-64) + atributos do
@@ -73,7 +74,8 @@ def mapas_json(variante: dict, k: int, loc_agr: np.ndarray) -> list[dict]:
                 if pos < PODA_TOPO or T[a] >= PODA_FRACAO * tot:
                     # cand <= -100: retirou o partido do distrito por acordo, em favor da agremiacao
                     # (indice global) -cand - 100, que concorre ali
-                    c_ = -(100 + int(loc_agr[apoio[j, a]])) if bloq[j, a] else int(esc[j, a])
+                    # cand = -2: "so onde mora" e nenhum candidato da agremiacao mora ali -> nao concorre
+                    c_ = -(100 + int(loc_agr[apoio[j, a]])) if bloq[j, a] else -2 if (d.get("mora") and esc[j, a] < 0) else int(esc[j, a])
                     linha += [int(loc_agr[a]), int(T[a]), X, c_] + Xg
                 else:
                     outros += [int(T[a]), X] + Xg

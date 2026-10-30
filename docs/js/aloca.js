@@ -126,7 +126,8 @@
 
   /* p: {alfa, beta, gama, pi, campoDe, gamas, afinidade ("campos" | "espectro"), pos, lambda,
    *     kappa}. Etapas: (0) acordo: quem retirou o partido do distrito (cand = -100 - agremiacao
-   * apoiada) passa kappa dos votos ao candidato apoiado e o resto por afinidade x tamanho;
+   * apoiada) passa kappa dos votos ao candidato apoiado e o resto por afinidade x tamanho; quem nao
+   * concorre por falta de morador (cand = -2, variante "so onde mora") passa tudo por afinidade x tamanho;
    * (1) heranca dos colegas (alfa, gama); (2) voto util (beta); (3) polarizacao (pi).
    * Devolve tambem a decomposicao do voto de cada entrada: P (nominal proprio ali), L (legenda),
    * H (herdado dos colegas), R (recebido do que os outros nao herdaram), A (recebido por acordo),
@@ -157,7 +158,7 @@
     // (0) acordo: quem retirou o partido do distrito passa kappa dos votos a todos os que concorrem,
     // com peso afinidade x tamanho (espectro: e^-distancia/lambda; campos: e^-|diferenca de campo|);
     // o resto se espalha na proporcao do tamanho
-    const fora = cand.map(c => c <= -100);
+    const fora = cand.map(c => c <= -100 || c === -2);
     const apoiado = cand.map(c => c <= -100 ? -c - 100 : -1);   // agremiacao em favor de quem saiu
     const campoW = agr.map(a => a >= 0 ? p.campoDe[a] : null);
     const Kt = K || ((i, j) => (campoW[i] && campoW[j]) ? Math.exp(-Math.abs(POS[campoW[i]] - POS[campoW[j]])) : 0);
