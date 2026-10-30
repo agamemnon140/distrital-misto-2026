@@ -90,6 +90,14 @@ button.fantasma:hover, button.fantasma.ativo { background: var(--wash); }
 .duas { display: grid; grid-template-columns: 1fr 1.5fr; gap: 20px; }
 @media (max-width: 860px) { .duas { grid-template-columns: 1fr; } }
 .lista { font-size: 13px; color: var(--text-secondary); }
+.tabela tr.clicavel { cursor: pointer; }
+.tabela tr.clicavel:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: -2px; }
+.tabela td.seta { white-space: nowrap; }
+.tabela tr.detalhe > td { background: var(--wash); padding: 10px 12px 4px; }
+.tabela.sub { font-size: 12px; }
+.tabela.sub th { font-size: 11px; vertical-align: bottom; }
+.tabela.sub tr.venc td { font-weight: 600; }
+.tabela.sub .nota { margin-top: 6px; }
 .regiao { font-size: 12px; color: var(--text-secondary); max-width: 360px; }
 .regiao b { color: var(--text-primary); font-weight: 500; }
 

@@ -114,17 +114,24 @@
     return x(g.length - 1);
   }
 
-  /* p: {alfa, beta, gama, pi, campoDe, gamas} */
+  /* p: {alfa, beta, gama, pi, campoDe, gamas}. Devolve tambem a decomposicao do voto de cada
+   * entrada: P (nominal proprio ali), L (legenda), H (herdado dos colegas), R (recebido do que os
+   * outros nao herdaram), U (saldo do voto util e da polarizacao); V = P + L + H + R + U */
   function distrito(flat, p) {
     const gamas = p.gamas || [];
-    const passo = 4 + gamas.length;
+    const passo = 5 + gamas.length;
     const n = flat.length / passo;
+    if (!Number.isInteger(n)) throw new Error(`distrito: ${flat.length} valores nao fecham com passo ${passo} (faltou p.gamas?)`);
     const agr = new Array(n), T = new Array(n), cand = new Array(n), sai = new Array(n);
+    const P = new Array(n), L = new Array(n), H = new Array(n);
     let Ttot = 0;
     for (let i = 0; i < n; i++) {
       const o = passo * i;
       agr[i] = flat[o]; T[i] = flat[o + 1]; cand[i] = flat[o + 3];
-      sai[i] = flat[o + 2] - p.alfa * herdado(flat, o, p.gama || 0, gamas);
+      P[i] = flat[o + passo - 1];
+      L[i] = T[i] - flat[o + 2] - P[i];
+      H[i] = p.alfa * herdado(flat, o, p.gama || 0, gamas);
+      sai[i] = flat[o + 2] - H[i];
       Ttot += T[i];
     }
     const V = T.slice();
@@ -135,6 +142,8 @@
       for (let a = 0; a < n; a++) { fator[a] = Ttot - T[a] > 0 ? sai[a] / (Ttot - T[a]) : 0; somaFator += fator[a]; }
       for (let b = 0; b < n; b++) V[b] = T[b] - sai[b] + T[b] * (somaFator - fator[b]);
     }
+    const R = V.map((v, i) => v - (T[i] - sai[i]));
+    const Vr = V.slice();
     const campo = agr.map(a => a >= 0 ? p.campoDe[a] : null);
     if (p.beta > 0 && n > 2) {
       const ordem = [...V.keys()].sort((a, b) => V[b] - V[a]);
@@ -168,7 +177,8 @@
     let segundo = venc === 0 ? 1 : 0;
     for (let i = 0; i < n; i++) if (i !== venc && V[i] > V[segundo]) segundo = i;
     const tot = V.reduce((s, x) => s + x, 0);
-    return { agr, V, cand, venc, segundo, tot };
+    const U = V.map((v, i) => v - Vr[i]);
+    return { agr, V, cand, venc, segundo, tot, P, L, H, R, U };
   }
 
   // ------------------------------------------------------------------ estado

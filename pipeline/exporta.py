@@ -1,10 +1,11 @@
 """Exporta os JSON da pagina (docs/dados).
 
   base.json          agremiacoes, partidos, rateios (k por UF), candidatos e totais por UF, eleitos reais
-  dist/{UF}.json     por k: para cada mapa e distrito, entradas [agr, T, X, cand, X_g1..X_g4] + metricas
+  dist/{UF}.json     por k: para cada mapa e distrito, entradas [agr, T, X, cand, X_g1..X_g4, P] + metricas
                      (T = voto da agremiacao no distrito; X = voto nominal dos colegas que NAO
                      concorrem ali; cand = indice do candidato emparelhado, -1 se nenhum; X_g = parte
-                     de X que o candidato herda com gama = GAMAS, ver matrizes.py)
+                     de X que o candidato herda com gama = GAMAS, ver matrizes.py; P = voto nominal
+                     proprio do candidato ali; a legenda e T - X - P)
   mapas/{UF}.json    por k: atribuicao tijolo -> distrito de cada mapa (string base-64) + atributos do
                      tijolo (municipio, eleitorado e, nos municipios quebrados, os bairros dos locais)
   geo/{UF}.json      TopoJSON dos tijolos
@@ -66,12 +67,12 @@ def exporta_uf(uf: str, idx_agr: dict) -> dict:
                 T = Va[j]
                 ordem = np.argsort(-T)
                 tot = T.sum()
-                linha, outros = [], np.zeros(2 + len(GAMAS), dtype=np.int64)
+                linha, outros = [], np.zeros(3 + len(GAMAS), dtype=np.int64)
                 for pos, a in enumerate(ordem):
                     if T[a] <= 0:
                         break
                     X = int(d["nom"][j, a] - own[j, a])
-                    Xg = [int(x) for x in d["Xg"][:, j, a]]
+                    Xg = [int(x) for x in d["Xg"][:, j, a]] + [int(own[j, a])]
                     if pos < PODA_TOPO or T[a] >= PODA_FRACAO * tot:
                         linha += [int(loc_agr[a]), int(T[a]), X, int(esc[j, a])] + Xg
                     else:

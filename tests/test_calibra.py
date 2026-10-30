@@ -31,7 +31,7 @@ const campos = %s;
 const out = casos.map(c => {
   // uma agremiacao por candidato; campo -1 = agremiacao "outros" (sem campo)
   const flat = [], campoDe = [];
-  c.s.forEach((v, i) => { flat.push(c.pc[i] < 0 ? -1 : i, v, 0, -1); campoDe.push(c.pc[i] < 0 ? null : campos[c.pc[i]]); });
+  c.s.forEach((v, i) => { flat.push(c.pc[i] < 0 ? -1 : i, v, 0, -1, 0); campoDe.push(c.pc[i] < 0 ? null : campos[c.pc[i]]); });
   return A.distrito(flat, { alfa: 1, gama: 0, beta: c.beta, pi: c.pi, campoDe, gamas: [] }).V;
 });
 process.stdout.write(JSON.stringify(out));
