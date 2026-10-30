@@ -63,9 +63,10 @@
   <label class="faixa" title="Do 3º lugar para baixo, fração do que resta que migra para o mais próximo dos dois primeiros">Polarização π <output id="o-pi"></output>
     <input id="f-pi" type="range" min="0" max="1" step="0.05">
   </label>
-  <label title="Como o voto migra: por campos fixos (esquerda, centro, direita) ou pela distância no espectro 0–10 dos especialistas">Afinidade
+  <label title="Como o voto que muda de candidato escolhe: pelo comportamento do eleitor de cada partido no 2º turno de 2026 no estado, pelo espectro dos especialistas ou por campos fixos">Afinidade
     <select id="f-afin">
-      <option value="espectro">Espectro 0–10</option>
+      <option value="turno2">2º turno de 2026, por estado</option>
+      <option value="espectro">Espectro dos especialistas</option>
       <option value="campos">Campos fixos</option>
     </select>
   </label>
@@ -119,6 +120,7 @@
       <label>Estado <select id="f-uf-res"></select></label>
       <label>Mapa <select id="f-mapa-res"></select></label>
     </div>
+    <div id="banc-res" class="bancada"></div>
     <div class="duas">
       <div><h3 id="h-uf-part"></h3><table class="tabela" id="t-uf-partidos"><thead><tr><th>Partido</th>
         <th class="n">Distritos</th><th class="n">Lista</th><th class="n">Total</th><th class="n">Real</th></tr></thead><tbody></tbody></table></div>
@@ -168,6 +170,10 @@
     </div>
   </div>
   <div class="cartao">
+    <h2 id="h-banc-map">Bancada do estado</h2>
+    <div id="banc-map" class="bancada"></div>
+  </div>
+  <div class="cartao">
     <h2 id="h-tab-dist">Distritos</h2>
     <p class="nota">Clique num distrito, aqui ou no mapa, para ver os candidatos de cada partido, de onde veio cada voto e o total real de cada um.</p>
     <table class="tabela" id="t-dist"><thead><tr><th>#</th><th class="n">Eleitorado</th><th class="n">Desvio</th>
@@ -180,10 +186,11 @@
   <div class="cartao texto" id="metodo"></div>
   <div class="cartao">
     <h2>Posição de cada agremiação</h2>
-    <p class="nota">Campo (modo "campos fixos") e nota no espectro de 0 a 10 (modo "espectro"; especialistas, rodada 2022). Dá para trocar aqui;
+    <p class="nota">Campo (modo "campos fixos"), fatia do eleitor do partido que votou em Lula no 2º turno (modo "2º turno"; aqui a média do país,
+      no simulador a de cada estado) e nota no espectro de 0 a 10 (modo "espectro"; especialistas, rodada 2022). Campo e nota dá para trocar aqui;
       o voto útil e a polarização são recalculados na hora. A divisão dos distritos entre vizinhos (coordenação) é calculada antes, com as notas
       originais, e não muda com a edição. Padrões em <code>config/campos.json</code> e <code>config/espectro.json</code>.</p>
-    <table class="tabela" id="t-campos" style="max-width:520px"><thead><tr><th>Agremiação</th><th>Campo</th><th class="n">Espectro (0–10)</th>
+    <table class="tabela" id="t-campos" style="max-width:600px"><thead><tr><th>Agremiação</th><th>Campo</th><th class="n">Voto em Lula (2º turno, Brasil)</th><th class="n">Espectro (0–10)</th>
       </tr></thead><tbody></tbody></table>
   </div>
 </section>

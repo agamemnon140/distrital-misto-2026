@@ -10,8 +10,8 @@ const D = path.join(__dirname, "..", "docs", "dados");
 const base = JSON.parse(fs.readFileSync(path.join(D, "base.json"), "utf8"));
 const cal = JSON.parse(fs.readFileSync(path.join(D, "calibra.json"), "utf8"));
 const arg = Object.fromEntries(process.argv.slice(2).map(s => s.split("=")));
-const coord = arg.coord || "media";
-const afinidade = arg.afinidade || "espectro";
+const coord = arg.coord || "alta";
+const afinidade = arg.afinidade || "turno2";
 const cs = (cal[afinidade] || {}).sem || {}, cc = (cal[afinidade] || {}).com || {};
 const c = { beta: cs.beta, pi: cs.pi, lambda: cs.lambda, kappa: 1 };
 const p = {

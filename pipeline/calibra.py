@@ -140,11 +140,26 @@ def _siglas(comp: str) -> set[str]:
     return {s.strip().upper().replace(" ", "") for s in comp.split("/") if s.strip()}
 
 
+def posicao_turno2() -> dict:
+    """{uf: {nr do partido: 10 * (1 - L)}}: posicao 0-10 pela fatia de Lula do eleitor do partido no
+    2o turno de 2026 (pipeline.segundo_turno); a agremiacao de 2026 de cada partido define o L."""
+    from .caminhos import TRAB
+    from .candidatos import agr as agr_do_partido
+    L = json.loads((TRAB / "segundo_turno.json").read_text("utf-8"))
+    nac = L["_nacional"]
+    def x(uf, nr):
+        a = agr_do_partido(nr)
+        v = L.get(uf, {}).get(a, nac.get(a))
+        return np.nan if v is None else 10 * (1 - v)
+    return x
+
+
 def cidades(d: pd.DataFrame) -> list[dict]:
     campo = campo_partido()
     nt = notas()
     aptos = {cd: n for cd, uf, _, n in json.loads((APURACAO / "docs" / "dados" / "municipios.json").read_text("utf-8"))}
-    ver = d[d["cargo"] == "VEREADOR"].groupby(["CD_MUNICIPIO", "NR_PARTIDO", "SG_PARTIDO"], as_index=False)["votos"].sum()
+    ver = d[d["cargo"] == "VEREADOR"].groupby(["CD_MUNICIPIO", "SG_UF", "NR_PARTIDO", "SG_PARTIDO"], as_index=False)["votos"].sum()
+    x2 = posicao_turno2()
     nr_da_sigla = dict(zip(ver["SG_PARTIDO"].str.upper().str.replace(" ", ""), ver["NR_PARTIDO"]))
     pre = d[d["cargo"] == "PREFEITO"].groupby(["CD_MUNICIPIO", "SQ_COLIGACAO", "NR_PARTIDO", "DS_COMPOSICAO_COLIGACAO"],
                                                as_index=False)["votos"].sum()
@@ -182,6 +197,7 @@ def cidades(d: pd.DataFrame) -> list[dict]:
         fora = sorted(nr for nr in vp if nr not in cabecas)          # partidos sem candidato a prefeito
         out.append({"aptos": n, "top2": float(np.sort(so)[-2:].sum()), "ncand": len(p), "fo": fo,
                     "s": s, "x": x, "pc": pc,
+                    "x2": np.array([np.nanmean([x2(g["SG_UF"].iloc[0], nr) for nr in agr[a]]) if agr[a] else np.nan for a in ids]),
                     "c_base": np.array(proprio) / tot, "w_v": np.array([vp[nr] for nr in fora]) / tot,
                     "w_x": np.array([nt.get(nr, np.nan) for nr in fora]),
                     "w_pc": np.array([POS.get(campo.get(FED24.get(nr, nr)), -1) for nr in fora]),
@@ -191,7 +207,7 @@ def cidades(d: pd.DataFrame) -> list[dict]:
 
 
 # ------------------------------------------------------------------------------- sem coordenacao
-def sem_coordenacao(cs: list[dict], espectro: bool) -> dict:
+def sem_coordenacao(cs: list[dict], espectro: bool, chave_x: str = "x") -> dict:
     grade_b = GRADE if espectro else GRADE_FINA
     lams = LAMBDAS if espectro else (None,)
     obs = np.array([c["top2"] for c in cs])
@@ -199,7 +215,7 @@ def sem_coordenacao(cs: list[dict], espectro: bool) -> dict:
     F = np.zeros_like(T)
     for k, c in enumerate(cs):
         for (i, b), (j, p), (q, lam) in product(enumerate(grade_b), enumerate(GRADE_FINA), enumerate(lams)):
-            V = modelo(c["s"], c["pc"], b, p, c["x"] if espectro else None, lam or 1.0)
+            V = modelo(c["s"], c["pc"], b, p, c[chave_x] if espectro else None, lam or 1.0)
             T[k, i, j, q] = np.sort(V)[-2:].sum()
             fp = np.array([V[c["pc"] == r].sum() for r in range(3)])
             F[k, i, j, q] = ((fp - c["fo"]) ** 2).sum()
@@ -293,6 +309,9 @@ def main() -> None:
     for modo, esp in (("campos", False), ("espectro", True)):
         r[modo] = {"sem": sem_coordenacao(sel, esp), "com": com_coordenacao(sel, esp)}
         print(modo, json.dumps({k: {kk: vv for kk, vv in v.items() if kk != "curva"} for k, v in r[modo].items()}), flush=True)
+    # afinidade pelo 2o turno de 2026 (por UF): so o desenho "todos concorrem"
+    r["turno2"] = {"sem": sem_coordenacao(sel, True, "x2")}
+    print("turno2", json.dumps({k: v for k, v in r["turno2"]["sem"].items() if k != "curva"}), flush=True)
     r["top2_sem_ajuste"] = r["campos"]["sem"]["top2_sem_ajuste"]
     (SAIDA_WEB / "calibra.json").write_text(json.dumps(r, ensure_ascii=False, indent=1), "utf-8")
 

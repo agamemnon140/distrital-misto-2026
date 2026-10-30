@@ -147,6 +147,11 @@
       sai[i] = flat[o + 2] - H[i];
     }
     const K = afinidadeDe(p, agr);
+    // popularidade do candidato: (voto pessoal / distrito)^gama, com piso de 0,3% -- em toda escolha
+    // entre candidatos (voto orfao, acordo, voto util, polarizacao) o peso e afinidade x tamanho x
+    // popularidade: um puxador atrai mais que um nome desconhecido do mesmo partido
+    const Tdist = T.reduce((s, x) => s + x, 0) || 1;
+    const pop = P.map(x => Math.pow(Math.max(x / Tdist, 0.003), p.gama || 0));
 
     // (0) acordo: quem retirou o partido do distrito passa kappa dos votos a todos os que concorrem,
     // com peso afinidade x tamanho (espectro: e^-distancia/lambda; campos: e^-|diferenca de campo|);
@@ -161,7 +166,7 @@
       for (let w = 0; w < n; w++) {
         if (!fora[w]) continue;
         const m = T[w];
-        const pesos = T.map((t, i) => fora[i] ? 0 : Kt(w, i) * t);
+        const pesos = T.map((t, i) => fora[i] ? 0 : Kt(w, i) * t * pop[i]);
         const soma = pesos.reduce((s, x) => s + x, 0);
         const segue = soma > 0 ? kappa * m : 0;
         if (soma > 0) for (let i = 0; i < n; i++) A[i] += segue * pesos[i] / soma;
@@ -180,7 +185,7 @@
       const pesos = T.map((t, b) => {
         if (b === a || fora[b]) return 0;
         somaT += t;
-        const w = Kt(a, b) * t;
+        const w = Kt(a, b) * t * pop[b];
         soma += w;
         return w;
       });
@@ -214,7 +219,7 @@
         for (let pos = 2; pos < ordem.length; pos++) {
           const i = ordem[pos], acima = ordem.slice(0, pos);
           const ks = acima.map(j => K(i, j));
-          const w = acima.map((j, q) => ks[q] * V0[j]);
+          const w = acima.map((j, q) => ks[q] * V0[j] * pop[j]);
           const kmax = Math.max(...ks), ws = w.reduce((s, x) => s + x, 0);
           if (kmax <= 0 || ws <= 0) continue;
           const m = p.beta * V0[i] * kmax;
@@ -235,10 +240,10 @@
         let fa;
         if (!K) {
           const da = dist(i, a), db = dist(i, b);
-          fa = da < db ? 1 : db < da ? 0 : V1[a] / (V1[a] + V1[b]);
+          fa = da < db ? 1 : db < da ? 0 : V1[a] * pop[a] / (V1[a] * pop[a] + V1[b] * pop[b]);
         } else {
-          const ka = K(i, a), kb = K(i, b);
-          fa = ka + kb > 0 ? ka / (ka + kb) : V1[a] / (V1[a] + V1[b]);
+          const ka = K(i, a) * pop[a], kb = K(i, b) * pop[b];
+          fa = ka + kb > 0 ? ka / (ka + kb) : V1[a] * pop[a] / (V1[a] * pop[a] + V1[b] * pop[b]);
         }
         V[a] += m * fa;
         V[b] += m * (1 - fa);
@@ -265,7 +270,10 @@
     const validos = Object.values(votosAgr).reduce((s, x) => s + x, 0);
     const porAgrEstado = porAgr(cands);
 
-    const dist = mapa.d.map(flat => distrito(flat, p));
+    // afinidade pelo 2o turno: posicao 0-10 = 10 x (1 - fatia de Lula do eleitor da agremiacao nesta UF)
+    const pd = p.afinidade === "turno2"
+      ? { ...p, afinidade: "espectro", pos: uf.l2.map(v => v == null ? null : 10 * (1 - v)) } : p;
+    const dist = mapa.d.map(flat => distrito(flat, pd));
     // vencedor de cada distrito: candidato emparelhado; sem ninguem com base local, o mais votado
     // da agremiacao no estado que ainda nao concorre em outro distrito (candidato "generico")
     const concorrem = new Set();

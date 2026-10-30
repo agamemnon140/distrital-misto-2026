@@ -35,7 +35,7 @@
   };
 
   const GAMA_PADRAO = 0.5;
-  const COORD_PADRAO = "media";
+  const COORD_PADRAO = "alta";
   const MODELOS = ["paralelo", "compensatorio", "lista"];
   const NOME_MODELO = { paralelo: "paralelo", compensatorio: "compensatório", lista: "só lista fechada" };
   const S = {
@@ -54,7 +54,7 @@
     S.campoDe = base.agrs.map(a => a.campo);
     S.pos = base.agrs.map(a => a.pos);
     S.padrao = { rateio: "atual", modelo: "paralelo", regra: "dhondt", alfa: 0.7, gama: GAMA_PADRAO,
-                 afinidade: "espectro", coord: COORD_PADRAO, excedentes: "2023" };
+                 afinidade: "turno2", coord: COORD_PADRAO, excedentes: "2023" };
     Object.assign(S.padrao, calibrados(S.padrao));
     S.p = { ...S.padrao };
     lerHash();
@@ -162,7 +162,7 @@
       $("#o-" + c).textContent = S.p[c].toFixed(2).replace(".", ",");
     }
     const liga = (id, on) => { $("#l-" + id).classList.toggle("desligado", !on); $("#f-" + id).disabled = !on; };
-    liga("lambda", S.p.afinidade === "espectro");
+    liga("lambda", S.p.afinidade !== "campos");
     liga("kappa", S.p.coord !== "nenhuma");
     $("#l-exc").classList.toggle("desligado", S.p.modelo !== "compensatorio");
     $("#f-exc").disabled = S.p.modelo !== "compensatorio";
@@ -393,6 +393,7 @@
     r.eleitosLista.forEach(i => add(i, "l"));
     cs.forEach(c => { if (c[5]) { por[c[2]] = por[c[2]] || { d: 0, l: 0, real: 0 }; por[c[2]].real++; } });
     $("#h-uf-part").textContent = `${UF_NOME[uf]}: ${base.rateios[S.p.rateio][uf]} cadeiras, ${k} distritos (mapa ${m + 1})`;
+    desenhaBancada("#banc-res", uf, r, simulaUFTodos(uf).res, m);
     const tb = d3.select("#t-uf-partidos tbody").html("");
     Object.entries(por).sort((a, b) => (b[1].d + b[1].l - a[1].d - a[1].l) || b[1].real - a[1].real).forEach(([p, v]) => {
       const tr = tb.append("tr");
@@ -661,6 +662,7 @@
       `Cidades grandes foram quebradas em células em volta dos locais de votação. Role para dar zoom; passe o mouse num distrito e clique para ver os candidatos dele.`;
 
     desenhaDiferencas(uf, k, res);
+    desenhaBancada("#banc-map", uf, r, res, S.mapa);
     desenhaTabelaDist(uf, r, dm, mAp, regs);
 
     // --- deputado buscado: zoom no distrito, realce e linha aberta
@@ -720,7 +722,8 @@
     if (buscaHash) {
       // aceita o rotulo completo ("Nome (PARTIDO-UF)") ou so o comeco do nome
       const q = norm(buscaHash);
-      const achado = indice.has(q) ? buscaHash : [...indice.keys()].find(r => r.startsWith(q));
+      const votos = (r) => { const x = indice.get(r); return S.base.uf[x.uf].cands[x.i][4]; };
+      const achado = indice.has(q) ? q : [...indice.keys()].filter(r => r.startsWith(q)).sort((a, b) => votos(b) - votos(a))[0];
       buscaHash = null;
       if (achado) {
         const alvo = indice.get(norm(achado));
@@ -803,7 +806,9 @@
       <tbody>${linhas}</tbody></table>${retirados}
       <p class="nota">Voto próprio, legenda e total real são votos de verdade de 2026. "Herdado de colegas" é o que ele leva dos colegas de partido
       que não concorrem aqui (α = ${v2(S.p.alfa)}, γ = ${v2(S.p.gama)}); "De outros partidos" é o que chega do voto que os outros não herdaram;
-      a última etapa é o voto útil (β) e a polarização (π)${S.p.afinidade === "espectro" ? `, pela distância no espectro (λ = ${v2(S.p.lambda)})` : ", por campo"}.
+      a última etapa é o voto útil (β) e a polarização (π)${S.p.afinidade === "turno2" ? `, pelo comportamento do eleitor de cada partido no 2º turno neste estado (λ = ${v2(S.p.lambda)})`
+        : S.p.afinidade === "espectro" ? `, pela distância no espectro (λ = ${v2(S.p.lambda)})` : ", por campo"}.
+      Em toda escolha entre candidatos pesa também a popularidade de cada um (voto pessoal<sup>γ</sup>).
       "Aqui / total": quanto da votação real do candidato no estado veio deste distrito.</p>`;
   }
 
@@ -833,6 +838,65 @@
     desenhaTabelaDist(...ultTabela.args);
     const tr = document.querySelector(`#t-dist tbody tr[data-j="${j}"]`);
     if (tr && rolar) tr.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // bancada do estado num mapa: por agremiacao, cadeiras de distrito (cheio) + de lista (claro),
+  // com a mediana dos 50 mapas (traco) e os eleitos de verdade em 2026 (losango)
+  function desenhaBancada(sel, uf, r, res, m) {
+    const base = S.base, cs = base.uf[uf].cands, nAgr = base.agrs.length;
+    const conta = (rr) => {
+      const d = new Array(nAgr).fill(0), l = new Array(nAgr).fill(0);
+      rr.eleitosDistrito.forEach(v => { d[cs[v.cand][3]]++; });
+      rr.eleitosLista.forEach(i => { l[cs[i][3]]++; });
+      return { d, l };
+    };
+    const atual = conta(r);
+    const todos = res.map(conta);
+    const real = new Array(nAgr).fill(0);
+    cs.forEach(c => { if (c[5]) real[c[3]]++; });
+    const linhas = d3.range(nAgr).map(a => ({
+      a, d: atual.d[a], l: atual.l[a], real: real[a],
+      med: med(todos.map(t => t.d[a] + t.l[a])),
+    })).filter(x => x.d + x.l + x.real + x.med > 0).sort((x, y) => (y.d + y.l - x.d - x.l) || (y.real - x.real));
+    const S_ = d3.sum(linhas, x => x.d + x.l), nd = d3.sum(linhas, x => x.d), nl = d3.sum(linhas, x => x.l);
+    const lh = 24, W = 760, x0 = 130, x1 = W - 120, H = linhas.length * lh + 34;
+    const x = d3.scaleLinear().domain([0, d3.max(linhas, l => Math.max(l.d + l.l, l.real, l.med)) || 1]).range([x0, x1]);
+    const caixa = d3.select(sel).html("");
+    caixa.append("p").attr("class", "resumo").html(
+      `${UF_NOME[uf]}, mapa ${m + 1}: <b>${S_}</b> cadeiras, <b>${nd}</b> de distrito e <b>${nl}</b> de lista` +
+      (S.p.modelo === "lista" ? " (só lista fechada)" : ""));
+    const svg = caixa.append("svg").attr("viewBox", `0 0 ${W} ${H}`).attr("role", "img")
+      .attr("aria-label", `Bancada de ${UF_NOME[uf]} por agremiação: distrito e lista`);
+    linhas.forEach((ln, i) => {
+      const y = 8 + i * lh, cor = corCampo(S.campoDe[ln.a]);
+      svg.append("text").attr("class", "rot-agr").attr("x", x0 - 8).attr("y", y + 12).attr("text-anchor", "end").text(siglaAgr(ln.a));
+      if (ln.d) svg.append("rect").attr("x", x(0)).attr("y", y + 2).attr("width", x(ln.d) - x(0)).attr("height", 14).attr("rx", 2).attr("fill", cor);
+      if (ln.l) svg.append("rect").attr("x", x(ln.d) + (ln.d ? 2 : 0)).attr("y", y + 2).attr("width", Math.max(1, x(ln.d + ln.l) - x(ln.d) - (ln.d ? 2 : 0)))
+        .attr("height", 14).attr("rx", 2).attr("fill", cor).attr("fill-opacity", 0.35).attr("stroke", cor).attr("stroke-width", 1);
+      svg.append("line").attr("x1", x(ln.med)).attr("x2", x(ln.med)).attr("y1", y).attr("y2", y + 18)
+        .attr("stroke", "var(--text-primary)").attr("stroke-width", 2);
+      svg.append("path").attr("transform", `translate(${x(ln.real)},${y + 9})`).attr("d", d3.symbol(d3.symbolDiamond, 40)())
+        .attr("fill", "none").attr("stroke", "var(--text-secondary)").attr("stroke-width", 1.5);
+      svg.append("text").attr("class", "tot").attr("x", x1 + 10).attr("y", y + 12)
+        .text(`${ln.d} + ${ln.l} = ${ln.d + ln.l}`);
+      svg.append("rect").attr("x", 0).attr("y", y).attr("width", W).attr("height", lh).attr("fill", "transparent")
+        .on("mousemove", ev => mostraDica(ev, `<b>${siglaAgr(ln.a)}</b><br>Mapa ${m + 1}: ${ln.d} de distrito + ${ln.l} de lista = ${ln.d + ln.l}` +
+          `<br><span class="m">Mediana dos 50 mapas: ${fmtMed(ln.med)} · eleitos de verdade: ${ln.real}</span>`))
+        .on("mouseleave", escondeDica);
+    });
+    const yl = H - 10;
+    const leg = svg.append("g").attr("transform", `translate(${x0},${yl})`);
+    leg.append("rect").attr("width", 12).attr("height", 10).attr("y", -9).attr("rx", 2).attr("fill", "var(--text-secondary)");
+    leg.append("text").attr("x", 16).text("distrito");
+    leg.append("rect").attr("x", 76).attr("width", 12).attr("height", 10).attr("y", -9).attr("rx", 2).attr("fill", "var(--text-secondary)")
+      .attr("fill-opacity", 0.35).attr("stroke", "var(--text-secondary)");
+    leg.append("text").attr("x", 92).text("lista");
+    leg.append("line").attr("x1", 140).attr("x2", 140).attr("y1", -11).attr("y2", 2).attr("stroke", "var(--text-primary)").attr("stroke-width", 2);
+    leg.append("text").attr("x", 146).text("mediana dos 50 mapas");
+    leg.append("path").attr("transform", "translate(292,-4)").attr("d", d3.symbol(d3.symbolDiamond, 40)())
+      .attr("fill", "none").attr("stroke", "var(--text-secondary)").attr("stroke-width", 1.5);
+    leg.append("text").attr("x", 300).text("eleitos de verdade em 2026");
+    if (sel === "#banc-map") $("#h-banc-map").textContent = `Bancada — ${UF_NOME[uf]}`;
   }
 
   function desenhaTabelaDist(uf, r, dm, mAp, regs) {
@@ -876,7 +940,7 @@
     const niveis = Object.entries(S.base.niveis).map(([nome, [t0, t2, dw]]) => `<tr${nome === S.p.coord ? ' style="font-weight:600"' : ""}>` +
       `<td>${{ baixa: "Baixa", media: "Média", alta: "Alta" }[nome]}</td>` +
       [0, 1, 2, 3].map(d => `<td class="n">${pct(t0 * Math.pow(t2 / t0, d / 2), 1)}</td>`).join("") + `<td class="n">${v(dw)} ponto</td></tr>`).join("");
-    const tabCal = linhaCal("Campos fixos: todos concorrem", c.campos.sem) + linhaCal("Campos fixos: coligações", c.campos.com) +
+    const tabCal = linhaCal("2º turno por estado: todos concorrem", c.turno2.sem) + linhaCal("Campos fixos: todos concorrem", c.campos.sem) + linhaCal("Campos fixos: coligações", c.campos.com) +
       linhaCal("Espectro: todos concorrem", c.espectro.sem) + linhaCal("Espectro: coligações", c.espectro.com);
     $("#metodo").innerHTML = `
 <h2>O que foi simulado</h2>
@@ -934,6 +998,13 @@ não concorre naquele distrito teve lá, ele herda α × min(1, votos dele ÷ vo
 fração α. Com γ &gt; 0, o eleitor de um puxador segue menos um candidato muito mais fraco que ele: se o candidato do distrito teve um quarto dos
 votos do puxador ali, com γ = 0,5 ele herda metade de α. O que não é herdado vai para os outros candidatos do distrito com peso afinidade ×
 tamanho, como no acordo: o eleitor do PSOL que não segue o candidato do PSOL ali vai mais para o PT do que para o PL.</li>
+<li><b>Afinidade.</b> Toda vez que um voto muda de candidato (voto órfão, acordo, voto útil, polarização), ele escolhe com peso afinidade ×
+tamanho × popularidade. A <b>popularidade</b> é (voto pessoal do candidato no distrito)<sup>γ</sup>: com γ = 0,5, Erika Hilton (11% de voto pessoal)
+atrai quase cinco vezes mais que um nome do PL com 0,5%, na mesma afinidade. A <b>afinidade</b> padrão é a do <b>2º turno de 2026, por estado</b>:
+para cada estado, uma regressão local a local de votação estima que fatia do eleitor de cada partido votou em Lula, e a posição do partido é
+10 × (1 − essa fatia). Assim o eleitor do PSD da Bahia (86% Lula) fica perto do PT, e o de São Paulo (42%), longe. A alternativa
+<b>espectro dos especialistas</b> usa a escala nacional descrita abaixo, que põe o centro perto da direita em todo o país; a de <b>campos fixos</b>
+usa esquerda, centro e direita.</li>
 <li><b>Voto útil (β).</b> Quem ficou do 3º lugar para baixo perde votos para quem está à sua frente. Nos <b>campos fixos</b>, quem não lidera o próprio
 campo (esquerda, centro, direita) passa β dos votos ao mais bem colocado do campo. No <b>espectro</b>, a afinidade entre duas agremiações é
 e<sup>−distância/λ</sup> (com λ = 1, quem está a 1 ponto tem afinidade 0,37; a 2 pontos, 0,14): o candidato passa β × a maior afinidade com
@@ -955,7 +1026,7 @@ Dois desenhos, com o mesmo código do simulador, para cada afinidade (campos ou 
 <li><b>Todos concorrem</b> (dá β, π e λ): cada partido vira um "candidato" com o seu voto para vereador, como no distrito, onde todo partido tem
 candidato. Os parâmetros precisam levar essa dispersão, em que os dois primeiros têm só ${pct(c.top2_sem_ajuste, 0)}, até a concentração real.
 Esse alvo sozinho não separa β de π: há uma curva de pontos que o reproduzem. O desempate vem da votação de prefeito por campo, que β não muda e π
-muda. λ não é calibrado: fica em 1.</li>
+muda. λ não é calibrado: fica em 1. No modo 2º turno, a posição de cada partido na cidade é a do seu estado.</li>
 <li><b>Coligações</b> (dá κ): as coligações de verdade dizem quem se retirou. O candidato a prefeito leva o voto do próprio partido; cada partido
 sem candidato passa κ dos votos por afinidade × tamanho; depois vêm β e π. O alvo é a votação de cada candidato.</li>
 </ul>
@@ -1003,6 +1074,7 @@ pelo método dos maiores restos: sem teto e com piso 8 (SP iria para ${S.base.ra
       tr.append("td").text(NOME[a.sigla] || a.sigla);
       const sel = tr.append("td").append("select").on("change", e => { S.campoDe[i] = e.target.value; simula(); escreveHash(); });
       CAMPOS.forEach(c => sel.append("option").attr("value", c).property("selected", S.campoDe[i] === c).text(ROT_CAMPO[c]));
+      tr.append("td").attr("class", "n").text(a.lula == null ? "—" : pct(a.lula, 0));
       tr.append("td").attr("class", "n").append("input").attr("type", "number").attr("min", 0).attr("max", 10).attr("step", 0.1)
         .style("width", "64px").property("value", S.pos[i] ?? "")
         .on("change", e => { const v = parseFloat(e.target.value); S.pos[i] = Number.isNaN(v) ? null : v; simula(); });
