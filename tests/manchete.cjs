@@ -15,7 +15,7 @@ const afinidade = arg.afinidade || "espectro";
 const cs = (cal[afinidade] || {}).sem || {}, cc = (cal[afinidade] || {}).com || {};
 const c = { beta: cs.beta, pi: cs.pi, lambda: cs.lambda, kappa: 1 };
 const p = {
-  rateio: arg.rateio || "atual", modelo: arg.modelo || "paralelo", regra: arg.regra || "brasil",
+  rateio: arg.rateio || "atual", modelo: arg.modelo || "paralelo", regra: arg.regra || "dhondt",
   excedentes: arg.excedentes || "2023", alfa: +(arg.alfa ?? 0.7), gama: +(arg.gama ?? 0.5),
   afinidade, beta: +(arg.beta ?? c.beta), pi: +(arg.pi ?? c.pi), lambda: +(arg.lambda ?? c.lambda ?? 1),
   kappa: +(arg.kappa ?? c.kappa ?? 1), campoDe: base.agrs.map(a => a.campo), pos: base.agrs.map(a => a.pos),

@@ -53,7 +53,7 @@
     S.base = base; S.cal = cal;
     S.campoDe = base.agrs.map(a => a.campo);
     S.pos = base.agrs.map(a => a.pos);
-    S.padrao = { rateio: "atual", modelo: "paralelo", regra: "brasil", alfa: 0.7, gama: GAMA_PADRAO,
+    S.padrao = { rateio: "atual", modelo: "paralelo", regra: "dhondt", alfa: 0.7, gama: GAMA_PADRAO,
                  afinidade: "espectro", coord: COORD_PADRAO, excedentes: "2023" };
     Object.assign(S.padrao, calibrados(S.padrao));
     S.p = { ...S.padrao };
@@ -898,7 +898,8 @@ o que muda é o número de cadeiras dos partidos que dependiam de um puxador.</l
 <h2>Os quatro passos</h2>
 <p><b>1. Voto de lista.</b> É o total da agremiação no estado (votos nominais + legenda), exatamente a conta que define o quociente
 partidário hoje. Federações (PT/PCdoB/PV, PSOL/Rede, PSDB/Cidadania, União/PP, PRD/Solidariedade) disputam como uma só,
-como em 2026; o placar é aberto por partido pelo candidato eleito.</p>
+como em 2026; o placar é aberto por partido pelo candidato eleito. Por padrão, as cadeiras de lista são repartidas por D'Hondt puro
+(maiores médias, sem quociente eleitoral nem cláusulas); o seletor "Regra da lista" troca pela regra brasileira de 2026.</p>
 <p><b>2. Distritos.</b> Distritos contíguos, com eleitorado a ±10% da média do estado, sorteados pelo algoritmo ReCom
 (cadeia de Markov de árvores geradoras) a partir de um grafo de municípios. Município maior que meio distrito é quebrado em células
 em volta dos seus locais de votação; os bairros listados em cada distrito são os do cadastro desses locais no TSE.
