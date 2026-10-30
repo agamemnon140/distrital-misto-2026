@@ -124,8 +124,8 @@
   }
 
   /* p: {alfa, beta, gama, pi, campoDe, gamas, afinidade ("campos" | "espectro"), pos, lambda,
-   *     kappa, limiar, posCoord}. Etapas: (0) acordo: quem retirou a candidatura (cand = -2) passa
-   * kappa dos votos as vizinhas que concorrem ali (a ate `limiar` pontos), o resto se espalha;
+   *     kappa}. Etapas: (0) acordo: quem retirou o partido do distrito (cand = -2) passa kappa dos
+   * votos aos que concorrem, por afinidade x tamanho; o resto se espalha;
    * (1) heranca dos colegas (alfa, gama); (2) voto util (beta); (3) polarizacao (pi).
    * Devolve tambem a decomposicao do voto de cada entrada: P (nominal proprio ali), L (legenda),
    * H (herdado dos colegas), R (recebido do que os outros nao herdaram), A (recebido por acordo),
@@ -148,25 +148,23 @@
     }
     const K = afinidadeDe(p, agr);
 
-    // (0) acordo entre vizinhas
+    // (0) acordo: quem retirou o partido do distrito passa kappa dos votos a todos os que concorrem,
+    // com peso afinidade x tamanho (espectro: e^-distancia/lambda; campos: e^-|diferenca de campo|);
+    // o resto se espalha na proporcao do tamanho
     const fora = cand.map(c => c === -2);
     if (fora.some(Boolean)) {
-      const xc = agr.map(a => (a >= 0 && p.posCoord && p.posCoord[a] != null) ? p.posCoord[a] : null);
+      const campoW = agr.map(a => a >= 0 ? p.campoDe[a] : null);
+      const Kt = K || ((i, j) => (campoW[i] && campoW[j]) ? Math.exp(-Math.abs(POS[campoW[i]] - POS[campoW[j]])) : 0);
       let Tc = 0;
       for (let i = 0; i < n; i++) if (!fora[i]) Tc += T[i];
       const kappa = p.kappa === undefined ? 1 : p.kappa;
       for (let w = 0; w < n; w++) {
         if (!fora[w]) continue;
         const m = T[w];
-        const aliados = [];
-        for (let i = 0; i < n; i++) {
-          if (fora[i] || xc[i] === null || xc[w] === null) continue;
-          if (Math.abs(xc[i] - xc[w]) <= p.limiar + 1e-9) aliados.push(i);
-        }
-        const pesos = aliados.map(i => (K ? K(w, i) : 1) * T[i]);
+        const pesos = T.map((t, i) => fora[i] ? 0 : Kt(w, i) * t);
         const soma = pesos.reduce((s, x) => s + x, 0);
         const segue = soma > 0 ? kappa * m : 0;
-        aliados.forEach((i, q) => { A[i] += segue * pesos[q] / soma; });
+        if (soma > 0) for (let i = 0; i < n; i++) A[i] += segue * pesos[i] / soma;
         if (Tc > 0) for (let i = 0; i < n; i++) if (!fora[i]) A[i] += (m - segue) * T[i] / Tc;
         Tw[w] = m; T[w] = 0; P[w] = 0; L[w] = 0; H[w] = 0; sai[w] = 0;
       }
@@ -248,7 +246,7 @@
   // ------------------------------------------------------------------ estado
   /* uf: {votos_agr, cands:[[nr,nome,partido,agr,votos,eleitoReal]]}; mapa: {d:[flat...]};
    * p: {S, modelo, regra, alfa, beta, gama, pi, excedentes, campoDe, agrId, gamas, afinidade, pos,
-   *     lambda, kappa, limiar, posCoord} */
+   *     lambda, kappa} */
   function simulaUF(uf, mapa, p) {
     const regra = REGRAS[p.regra];
     const cands = uf.cands.map((c, i) => ({ i, nr: c[0], agr: c[3], v: c[4] }));
@@ -344,8 +342,7 @@
         const r = simulaUF(base.uf[uf], dist[uf][k][m], {
           S: base.rateios[p.rateio][uf], modelo: p.modelo, regra: p.regra, alfa: p.alfa, beta: p.beta,
           gama: p.gama, pi: p.pi, excedentes: p.excedentes, campoDe: p.campoDe, agrId, gamas: base.gamas,
-          afinidade: p.afinidade, pos: p.pos, lambda: p.lambda, kappa: p.kappa, limiar: p.limiar,
-          posCoord: base.agrs.map(a => a.pos),
+          afinidade: p.afinidade, pos: p.pos, lambda: p.lambda, kappa: p.kappa,
         });
         const cs = base.uf[uf].cands;
         const conta = (i, tipo) => {

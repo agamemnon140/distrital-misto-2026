@@ -6,14 +6,13 @@ Por UF e k (numero de distritos) e para cada um dos N_MAPAS mapas:
     (candidato, distrito) em ordem decrescente do voto do candidato ali; cada candidato fica com
     um distrito so, e cada agremiacao com um candidato por distrito). Nao depende de alfa/beta,
     por isso fica pronto aqui;
-  - com coordenacao (um limiar L do espectro): agremiacoes a ate L pontos uma da outra nao poem
-    candidato no mesmo distrito. O emparelhamento e um so, para todas: pares (candidato, distrito)
-    em ordem decrescente do voto esperado do candidato ali como representante do partido (proprio
-    + legenda + ALFA_ACORDO x colegas) -- e a forca do partido no distrito que decide o acordo, e
-    dentro do partido ainda vence quem tem mais voto pessoal. O par entra se o candidato esta livre,
-    a agremiacao ainda nao tem ninguem ali e nenhuma vizinha tem. Quem fica sem candidato porque
-    uma vizinha concorre ali "retirou-se por acordo" (bloq). Assim a Tabata vai para o distrito onde
-    a Samia nao esta;
+  - com coordenacao (um nivel de espectro.NIVEIS): o emparelhamento e um so, para todas, em ordem
+    decrescente do voto esperado do candidato no distrito como representante do partido (proprio
+    + legenda + ALFA x o que herda dos colegas com GAMA): a forca do partido decide quem fica. Um
+    par so entra se o candidato nao "atrapalha" ninguem ja posto ali: atrapalha quando o voto
+    PESSOAL do mais fraco dos dois (fracao do distrito) passa de espectro.limite(distancia). Barrado por partido a ate dw pontos, o partido se retira do
+    distrito (bloq); mais longe, pode lancar um nome fraco. Assim Samia e Tabata nao disputam o
+    mesmo distrito, mas Tabata e um nome fraco do PT podem;
   - para cada gama da grade GAMAS, quanto do voto dos colegas (que nao concorrem ali) o candidato
     consegue herdar: cada colega j passa x_j * min(1, proprio/x_j)^gama (o eleitor de um puxador
     so segue um candidato fraco em parte). gama = 0 e o X de antes;
@@ -32,12 +31,12 @@ import pandas as pd
 from scipy import sparse
 
 from .caminhos import ELEICOES, TRAB, UFS
-from .espectro import LIMIARES, posicoes
+from .espectro import NIVEIS, limite, posicoes
 from .mapas import ks_da_uf
 
 SAIDA = TRAB / "matrizes"
 GAMAS = (0.25, 0.5, 0.75, 1.0)
-ALFA_ACORDO = 0.7         # alfa padrao, so para ordenar quem concorre no acordo
+ALFA_ACORDO, GAMA_ACORDO = 0.7, 0.5     # alfa e gama padrao: so para medir a forca no acordo
 SAIDA.mkdir(parents=True, exist_ok=True)
 
 _CACHE: dict = {}
@@ -164,33 +163,64 @@ def emparelha(Vc: np.ndarray, cand_agr: np.ndarray, n_agr: int) -> np.ndarray:
     return escolhido
 
 
-def emparelha_coord(Vc: np.ndarray, Va: np.ndarray, nom: np.ndarray, cand_agr: np.ndarray,
-                    viz: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Como emparelha, mas com vizinhas (viz[a, b] = True) que nao dividem distrito. A ordem e o voto
-    esperado do candidato c no distrito d: Va[d, a] - (1 - ALFA_ACORDO) * (nom[d, a] - Vc[d, c]).
+def forca_esperada(Vc: np.ndarray, Va: np.ndarray, nom: np.ndarray, cand_agr: np.ndarray) -> np.ndarray:
+    """[k, n_cand] voto esperado do candidato c no distrito d se fosse o candidato do partido ali,
+    em fracao do distrito: proprio + legenda + ALFA x sum_j x_j min(1, proprio/x_j)^GAMA."""
+    X = np.zeros(Vc.shape)
+    for a in np.unique(cand_agr):
+        cs = np.flatnonzero(cand_agr == a)
+        if len(cs) < 2:
+            continue
+        sub = Vc[:, cs].astype(float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            R = np.where(sub[:, None, :] > 0, np.minimum(1.0, sub[:, :, None] / sub[:, None, :]), 0.0)
+        W = sub[:, None, :] * R ** GAMA_ACORDO
+        i = np.arange(len(cs))
+        W[:, i, i] = 0
+        X[:, cs] = W.sum(2)
+    leg = Va - nom
+    return (Vc + leg[:, cand_agr] + ALFA_ACORDO * X) / np.maximum(1, Va.sum(1, keepdims=True))
+
+
+def emparelha_coord(Vc: np.ndarray, forca: np.ndarray, pessoal: np.ndarray, cand_agr: np.ndarray,
+                    x: np.ndarray, nivel: tuple) -> tuple[np.ndarray, np.ndarray]:
+    """Como emparelha, com coordenacao. forca: ordem de prioridade; pessoal: voto proprio / distrito,
+    usado no teste de conflito. x: posicao de cada agremiacao (nan = sem nota, nunca conflita).
     Devolve (escolhido[k, n_agr], bloq[k, n_agr])."""
-    k, n_agr = Vc.shape[0], viz.shape[0]
+    t0, t2, dw = nivel
+    k, n_agr = Vc.shape[0], len(x)
     escolhido = -np.ones((k, n_agr), dtype=np.int32)
     bloq = np.zeros((k, n_agr), dtype=bool)
     usado = np.zeros(Vc.shape[1], dtype=bool)
-    forca = Va[:, cand_agr] - (1 - ALFA_ACORDO) * (nom[:, cand_agr] - Vc)
-    forca[Vc <= 0] = -1
-    ordem = np.argsort(-forca, axis=None, kind="stable")
+    f = np.where(Vc > 0, forca, -1.0)
+    ordem = np.argsort(-f, axis=None, kind="stable")
     for flat in ordem:
         d, c = divmod(int(flat), Vc.shape[1])
-        if forca[d, c] < 0:
+        if f[d, c] < 0:
             break
         a = cand_agr[c]
         if usado[c] or escolhido[d, a] >= 0 or bloq[d, a]:
             continue
+        if pessoal[d, c] >= t0 and not np.isnan(x[a]):
+            perto = np.inf
+            for b in np.flatnonzero(escolhido[d] >= 0):
+                if np.isnan(x[b]):
+                    continue
+                dist = abs(x[a] - x[b])
+                if min(pessoal[d, c], pessoal[d, escolhido[d, b]]) >= limite(dist, t0, t2):
+                    perto = min(perto, dist)
+            if perto < np.inf:
+                if perto <= dw:
+                    bloq[d, a] = True
+                continue
         escolhido[d, a] = c
         usado[c] = True
-        bloq[d] |= viz[a]
     bloq &= escolhido < 0
     return escolhido, bloq
 
 
-def processa(uf: str, k: int, ins: dict, viz: np.ndarray | None = None, mapas: np.ndarray | None = None) -> dict:
+def processa(uf: str, k: int, ins: dict, nivel: tuple | None = None, x: np.ndarray | None = None,
+             mapas: np.ndarray | None = None) -> dict:
     if mapas is None:
         mapas = np.load(TRAB / "mapas" / f"{uf}_k{k}.npy")
     n_agr = len(ins["agrs"])
@@ -201,10 +231,12 @@ def processa(uf: str, k: int, ins: dict, viz: np.ndarray | None = None, mapas: n
         P = sparse.coo_matrix((np.ones(ins["n"]), (m, np.arange(ins["n"]))), shape=(k, ins["n"])).tocsr()
         Va = (P @ ins["A"]).toarray()
         Vc = (P @ ins["C"]).toarray()
-        if viz is None:
+        if nivel is None:
             esc, bloq = emparelha(Vc, ins["cand_agr"], n_agr), np.zeros((k, n_agr), dtype=bool)
         else:
-            esc, bloq = emparelha_coord(Vc, Va, np.asarray(Vc @ G), ins["cand_agr"], viz)
+            forca = forca_esperada(Vc, Va, np.asarray(Vc @ G), ins["cand_agr"])
+            pessoal = Vc / np.maximum(1, Va.sum(1, keepdims=True))
+            esc, bloq = emparelha_coord(Vc, forca, pessoal, ins["cand_agr"], x, nivel)
         own = np.where(esc >= 0, np.take_along_axis(Vc, np.maximum(esc, 0), axis=1), 0)
         own_c = own[:, ins["cand_agr"]]                                  # proprio do escolhido da agremiacao
         escolhido = esc[:, ins["cand_agr"]] == np.arange(len(ins["cand_agr"]))[None, :]
@@ -229,10 +261,8 @@ def main() -> None:
         x = np.array([pos.get(a, np.nan) for a in ins["agrs"]])
         for k in ks_da_uf(uf):
             res["por_k"][k] = processa(uf, k, ins)
-            for L in LIMIARES:
-                viz = np.abs(x[:, None] - x[None, :]) <= L        # nan -> False: sem nota, sem vizinha
-                np.fill_diagonal(viz, False)
-                res["coord"].setdefault(L, {})[k] = processa(uf, k, ins, viz, res["por_k"][k]["mapas"])
+            for nome, nivel in NIVEIS.items():
+                res["coord"].setdefault(nome, {})[k] = processa(uf, k, ins, nivel, x, res["por_k"][k]["mapas"])
         # conferencia: com qualquer mapa, a soma dos distritos = total estadual por agremiacao
         tot = np.asarray(ins["A"].sum(axis=0)).ravel()
         for k, r in res["por_k"].items():

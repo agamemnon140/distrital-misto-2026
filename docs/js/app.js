@@ -35,7 +35,7 @@
   };
 
   const GAMA_PADRAO = 0.5;
-  const COORD_PADRAO = 2.1;
+  const COORD_PADRAO = "media";
   const MODELOS = ["paralelo", "compensatorio", "lista"];
   const NOME_MODELO = { paralelo: "paralelo", compensatorio: "compensatório", lista: "só lista fechada" };
   const S = {
@@ -61,14 +61,15 @@
     await carregaDist();
   }
 
-  // beta, pi, lambda e kappa calibrados para a combinacao afinidade x coordenacao
+  // beta, pi e lambda: calibracao "todos concorrem" (a coordenacao so tira os fortes que se atrapalham;
+  // os nomes fracos continuam no distrito); kappa: calibracao com as coligacoes
   function calibrados(p) {
-    const c = S.cal[p.afinidade][p.coord ? "com" : "sem"];
-    return { beta: c.beta, pi: c.pi, lambda: c.lambda || 1, kappa: c.kappa === undefined ? 1 : c.kappa };
+    const s = S.cal[p.afinidade].sem, c = S.cal[p.afinidade].com;
+    return { beta: s.beta, pi: s.pi, lambda: s.lambda || 1, kappa: c.kappa };
   }
 
-  // distritos da variante ativa (sem coordenacao ou com um limiar); cada variante e baixada uma vez
-  const pastaDist = (coord) => coord ? `dist_c${coord.toFixed(1)}` : "dist";
+  // distritos da variante ativa (sem coordenacao ou com uma intensidade); cada uma e baixada uma vez
+  const pastaDist = (coord) => coord === "nenhuma" ? "dist" : `dist_${coord}`;
   async function carregaDist() {
     const pasta = pastaDist(S.p.coord);
     if (!S.distPor[pasta]) {
@@ -102,8 +103,7 @@
 
   // ------------------------------------------------------------------ simulacao
   function params(extra) {
-    return { ...S.p, campoDe: S.campoDe, gamas: S.base.gamas, pos: S.pos, limiar: S.p.coord,
-             posCoord: S.base.agrs.map(a => a.pos), ...extra };
+    return { ...S.p, campoDe: S.campoDe, gamas: S.base.gamas, pos: S.pos, ...extra };
   }
 
   function simula() {
@@ -139,8 +139,8 @@
     const set = (campo, v) => { if (v !== undefined && v !== "" && !Number.isNaN(v)) S.p[campo] = v; };
     set("modelo", g("m", String)); set("rateio", g("r", String)); set("regra", g("l", String));
     set("alfa", g("a", Number)); set("beta", g("b", Number)); set("excedentes", g("e", String));
-    set("afinidade", g("af", String)); set("coord", g("co", Number));
-    if (!S.cal[S.p.afinidade] || (S.p.coord && !S.base.limiares.includes(S.p.coord))) { S.p.afinidade = S.padrao.afinidade; S.p.coord = S.padrao.coord; }
+    set("afinidade", g("af", String)); set("coord", g("co", String));
+    if (!S.cal[S.p.afinidade] || (S.p.coord !== "nenhuma" && !S.base.niveis[S.p.coord])) { S.p.afinidade = S.padrao.afinidade; S.p.coord = S.padrao.coord; }
     Object.assign(S.p, calibrados(S.p));
     set("gama", g("g", Number)); set("pi", g("p", Number)); set("beta", g("b", Number));
     set("lambda", g("la", Number)); set("kappa", g("ka", Number));
@@ -161,7 +161,7 @@
     }
     const liga = (id, on) => { $("#l-" + id).classList.toggle("desligado", !on); $("#f-" + id).disabled = !on; };
     liga("lambda", S.p.afinidade === "espectro");
-    liga("kappa", S.p.coord > 0);
+    liga("kappa", S.p.coord !== "nenhuma");
     $("#l-exc").classList.toggle("desligado", S.p.modelo !== "compensatorio");
     $("#f-exc").disabled = S.p.modelo !== "compensatorio";
   }
@@ -187,7 +187,7 @@
       simula(); desenha();
     };
     $("#f-afin").onchange = e => trocaModo("afinidade", e.target.value);
-    $("#f-coord").onchange = e => trocaModo("coord", +e.target.value);
+    $("#f-coord").onchange = e => trocaModo("coord", e.target.value);
     $("#f-reset").onclick = async () => {
       S.p = { ...S.padrao }; S.campoDe = S.base.agrs.map(a => a.campo); S.pos = S.base.agrs.map(a => a.pos);
       sincronizaFiltros(); await carregaDist(); simula(); desenha();
@@ -725,9 +725,9 @@
         `<td class="n"><b>${num(d.V[i])}</b></td><td class="n">${pct(d.V[i] / d.tot)}</td>` +
         `<td class="n">${c ? num(c[4]) : ""}</td><td class="n">${ali}</td><td>${real}</td></tr>`;
     }).join("");
-    const retirados = sairam.length ? `<p class="nota"><b>Retiraram a candidatura aqui, por acordo com um vizinho no espectro</b>
-      (até ${v2(S.p.coord)} ponto${S.p.coord >= 2 ? "s" : ""}): ${sairam.map(i => `${siglaAgr(i < 0 ? -1 : d.agr[i])} (${num(d.Tw[i])} votos em 2026 aqui)`).join(", ")}.
-      ${pct(S.p.kappa, 0)} desses votos vão para o vizinho que concorre (coluna "Acordo"); o resto se espalha entre todos.</p>` : "";
+    const retirados = sairam.length ? `<p class="nota"><b>Saíram deste distrito por acordo</b> (o candidato forte do partido atrapalharia um
+      vizinho próximo no espectro mais forte aqui): ${sairam.map(i => `${siglaAgr(i < 0 ? -1 : d.agr[i])} (${num(d.Tw[i])} votos em 2026 aqui)`).join(", ")}.
+      ${pct(S.p.kappa, 0)} desses votos vão para quem concorre, com peso afinidade × tamanho (coluna "Acordo"); o resto se espalha na proporção do tamanho.</p>` : "";
     return `<table class="tabela sub"><thead><tr><th></th><th>Candidato</th><th class="n">Voto próprio aqui</th><th class="n">Legenda</th>
       <th class="n">Herdado de colegas</th>${temAcordo ? '<th class="n">Acordo</th>' : ""}<th class="n">De outros partidos</th><th class="n">Voto útil e polarização</th>
       <th class="n">Simulado</th><th class="n">%</th><th class="n">Total real no estado</th><th class="n">Aqui / total</th><th>Em 2026</th></tr></thead>
@@ -804,8 +804,11 @@
     const linhaCal = (rot, x) => `<tr><td>${rot}</td><td class="n">${x.kappa === undefined ? "—" : v(x.kappa)}</td>` +
       `<td class="n">${v(x.beta)}</td><td class="n">${v(x.pi)}</td><td class="n">${x.lambda === undefined ? "—" : v(x.lambda)}</td>` +
       `<td class="n">${pct(x.top2_previsto, 0)}</td><td class="faixa-txt">${x.kappa === undefined ? `β ${ic(x.ic90_beta)}, π ${ic(x.ic90_pi)}` : `κ ${ic(x.ic90_kappa)}, β ${ic(x.ic90_beta)}, π ${ic(x.ic90_pi)}`}</td></tr>`;
-    const tabCal = linhaCal("Campos fixos, sem coordenação", c.campos.sem) + linhaCal("Campos fixos, com coordenação", c.campos.com) +
-      linhaCal("Espectro, sem coordenação", c.espectro.sem) + linhaCal("Espectro, com coordenação", c.espectro.com);
+    const niveis = Object.entries(S.base.niveis).map(([nome, [t0, t2, dw]]) => `<tr${nome === S.p.coord ? ' style="font-weight:600"' : ""}>` +
+      `<td>${{ baixa: "Baixa", media: "Média", alta: "Alta" }[nome]}</td>` +
+      [0, 1, 2, 3].map(d => `<td class="n">${pct(t0 * Math.pow(t2 / t0, d / 2), 1)}</td>`).join("") + `<td class="n">${v(dw)} ponto</td></tr>`).join("");
+    const tabCal = linhaCal("Campos fixos: todos concorrem", c.campos.sem) + linhaCal("Campos fixos: coligações", c.campos.com) +
+      linhaCal("Espectro: todos concorrem", c.espectro.sem) + linhaCal("Espectro: coligações", c.espectro.com);
     $("#metodo").innerHTML = `
 <h2>O que foi simulado</h2>
 <p>Votos de verdade, regras de mentira. A eleição de deputado federal de 4/10/2026 é recontada como se o eleitor
@@ -837,17 +840,23 @@ continua na lista, na ordem de votação nominal.</p>
 <ul>
 <li><b>Sem coordenação</b>, cada agremiação tem um candidato em cada distrito. Onde ela não tem ninguém com base local, entra o mais votado dela
 no estado que ainda está livre.</li>
-<li><b>Com coordenação</b>, agremiações vizinhas no espectro (a até 1,0, 1,5, 2,1 ou 2,5 pontos uma da outra; ver a tabela no fim da página) não lançam
-candidato no mesmo distrito. O emparelhamento é feito para todas de uma vez, em ordem do voto esperado do candidato ali como representante do
-partido (voto próprio + legenda + 0,7 × voto dos colegas): é a força do partido no distrito que decide quem fica no acordo, e dentro do partido
-vence quem tem mais voto pessoal. Um par entra se o candidato está livre, se a agremiação ainda não tem ninguém ali e se nenhuma vizinha tem.
-Assim, o candidato mais forte de cada partido vai para onde tem mais voto, e o aliado procura outro distrito: se Sâmia (PSOL) fica com o distrito, Tabata (PSB) vai para outro (com o limiar de 2,1 pontos, que é a distância entre a federação
-PSOL/Rede e o PSB). A vizinha que fica sem candidato num distrito "se retira por acordo".</li>
+<li><b>Com coordenação</b>, candidatos fortes de partidos próximos não disputam o mesmo distrito. Dois candidatos "se atrapalham" quando o mais
+fraco dos dois tem, ali, voto pessoal acima de um limite que cresce com a distância entre os partidos no espectro: limite(d) = t<sub>0</sub> ×
+(t<sub>2</sub> ÷ t<sub>0</sub>)<sup>d/2</sup>, com t<sub>0</sub> o limite na distância 0 (só um nome muito fraco convive com o partido-irmão) e
+t<sub>2</sub> o limite na distância 2 (só dois nomes realmente fortes se atrapalham). Na intensidade média, t<sub>0</sub> = 1% e t<sub>2</sub> = 4% do
+distrito: Sâmia (PSOL, uns 5% de voto pessoal no distrito em que é mais forte) e Tabata (PSB, uns 7%), a 2,07 pontos, se atrapalham; Tabata e
+Edilene (PSOL, menos de 1%) não. O emparelhamento é feito para todas de uma vez, em ordem do voto esperado do candidato ali como representante do
+partido (voto próprio + legenda + 0,7 × o que herda dos colegas): é a força do partido no distrito que decide quem fica, e quem é barrado vai
+para o melhor distrito em que não atrapalha ninguém. Se quem barrou é um partido muito próximo (até 1 ponto na intensidade média), o partido barrado
+sai do distrito; mais longe, pode lançar outro nome, desde que fraco o bastante para não atrapalhar.
+<table class="tabela" style="max-width:560px;margin-top:6px"><thead><tr><th>Intensidade</th><th class="n">limite a 0 ponto</th><th class="n">a 1 ponto</th>
+<th class="n">a 2 pontos</th><th class="n">a 3 pontos</th><th class="n">sai do distrito até</th></tr></thead><tbody>${niveis}</tbody></table></li>
 </ul>
 <p><b>4. Votos no distrito</b>, em quatro etapas.</p>
 <ul>
-<li><b>Acordo (κ).</b> Quem se retirou passa κ dos seus votos às vizinhas que concorrem ali (no espectro, mais para a mais próxima); o resto se espalha
-entre todos os candidatos, na proporção do voto de cada um.</li>
+<li><b>Acordo (κ).</b> O partido que saiu do distrito passa κ dos seus votos a todos os que concorrem ali, com peso afinidade × tamanho
+(afinidade e<sup>−distância/λ</sup> no espectro; e<sup>−diferença de campo</sup> nos campos). O voto do PSB vai mais para PDT e PT do que para o
+PSOL, e quase nada para o MDB, mesmo que o vizinho do acordo seja do PSOL. O resto, 1 − κ, se espalha na proporção do tamanho.</li>
 <li><b>Herança dos colegas (α e γ).</b> O candidato fica com os votos dele ali e com a legenda. Dos votos que cada colega de agremiação que
 não concorre naquele distrito teve lá, ele herda α × min(1, votos dele ÷ votos do colega)<sup>γ</sup>. Com γ = 0, todo colega passa a mesma
 fração α. Com γ &gt; 0, o eleitor de um puxador segue menos um candidato muito mais fraco que ele: se o candidato do distrito teve um quarto dos
@@ -868,25 +877,35 @@ A concentração nos dois primeiros cai com o tamanho da cidade e com o número 
 <th class="n">Dois primeiros</th></tr></thead><tbody>${faixas}</tbody></table>
 <p>Um distrito teria uns 600 mil eleitores, mais que qualquer cidade de turno único. Por isso a calibração usa as ${num(c.amostra.cidades)}
 cidades de ${num(c.amostra.de)} a ${num(c.amostra.ate)} eleitores, onde os dois primeiros ficam com <b>${pct(c.top2_observado, 0)}</b>.
-Cada combinação de afinidade e coordenação tem a sua calibração, com o mesmo código do simulador:</p>
+Dois desenhos, com o mesmo código do simulador, para cada afinidade (campos ou espectro):</p>
 <ul>
-<li><b>Sem coordenação</b>: cada partido vira um "candidato" com o seu voto para vereador (sem coligação, como no simulador), e os parâmetros precisam
-levar essa dispersão, em que os dois primeiros têm só ${pct(c.top2_sem_ajuste, 0)}, até a concentração real. Esse alvo sozinho não separa β de π:
-há uma curva de pontos que o reproduzem. O desempate vem da votação de prefeito por campo, que β não muda e π muda.</li>
-<li><b>Com coordenação</b>: as coligações de verdade fazem o papel do acordo. O candidato a prefeito leva o voto do próprio partido e κ do voto para
-vereador dos partidos coligados; depois vêm β e π. O alvo é a votação de cada candidato. Calibrar β e π de novo aqui evita contar duas vezes a
-mesma concentração: sem coligações no modelo, o β alto absorvia justamente o efeito delas.</li>
+<li><b>Todos concorrem</b> (dá β, π e λ): cada partido vira um "candidato" com o seu voto para vereador, como no distrito, onde todo partido tem
+candidato. Os parâmetros precisam levar essa dispersão, em que os dois primeiros têm só ${pct(c.top2_sem_ajuste, 0)}, até a concentração real.
+Esse alvo sozinho não separa β de π: há uma curva de pontos que o reproduzem. O desempate vem da votação de prefeito por campo, que β não muda e π
+muda. λ não é calibrado: fica em 1.</li>
+<li><b>Coligações</b> (dá κ): as coligações de verdade dizem quem se retirou. O candidato a prefeito leva o voto do próprio partido; cada partido
+sem candidato passa κ dos votos por afinidade × tamanho; depois vêm β e π. O alvo é a votação de cada candidato.</li>
 </ul>
+<p>A coordenação do simulador só tira do distrito os nomes fortes que se atrapalham; os nomes fracos de todos os partidos continuam lá. Por isso o
+comportamento do eleitor (β, π, λ) vem do desenho "todos concorrem", e da coligação vem só κ. Na prefeitura, ao contrário, quase todo partido sem
+cabeça de chapa se retira, e por isso o β calibrado ali sai perto de zero.</p>
 <table class="tabela" style="max-width:860px"><thead><tr><th>Combinação</th><th class="n">κ</th><th class="n">β</th><th class="n">π</th><th class="n">λ</th>
 <th class="n">Dois primeiros</th><th>Intervalo de 90% (bootstrap por cidade)</th></tr></thead><tbody>${tabCal}</tbody></table>
-<p>Com as coligações explícitas, o voto útil e a polarização quase somem: a coordenação de cúpula explica a concentração. E κ sai baixo: só uma
-parte do voto para vereador dos partidos coligados segue o candidato a prefeito, porque voto de vereador é muito pessoal. Ao trocar a afinidade
-ou a coordenação nos seletores, β, π, λ e κ voltam aos valores calibrados para aquela combinação.</p>
+<p>κ sai baixo e mal medido: voto para vereador é muito pessoal, e a regra afinidade × tamanho ajusta pior que uma regra em que o voto do partido
+coligado vai direto para o candidato da coligação (erro médio de 0,059 contra 0,043). Ou seja, nas prefeituras o eleitor segue mais a indicação do
+aliado do que a pura proximidade no espectro. Ao trocar a afinidade nos seletores, β, π, λ e κ voltam aos valores calibrados para ela.</p>
 <p>Ressalva: prefeitura é cargo executivo, com coligação montada antes, e pode concentrar mais que uma eleição de deputado. Em países com distrito de um eleito só e vários partidos, como o Reino Unido,
 a concentração nos dois primeiros costuma ser menor. Os seletores permitem testar o simulador com menos concentração.</p>
+<h2>O espectro</h2>
+<p>As notas são as médias de um levantamento com cientistas políticos, rodada de 2022 (Bolognesi, Ribeiro, Codato e Silva, <i>Opinião Pública</i>, 2025,
+tabela 1), numa escala de 0 (extrema esquerda) a 10 (extrema direita). A única conta feita aqui é a posição de cada federação: a média das notas dos
+seus partidos, ponderada pelo voto para deputado federal de 2026. O vazio entre o PDT (3,86) e o Solidariedade (6,01), sem nenhum partido no meio, é o
+achado do próprio artigo, que se chama "O desaparecimento do centro ideológico". O Missão não existia em 2022 e usa a nota do Novo. As notas podem
+ser editadas na tabela no fim da página (a divisão de distritos, calculada antes, usa as originais).</p>
 <h2>As premissas que não são medidas</h2>
-<p><b>α = 0,7</b> e <b>γ = ${v(GAMA_PADRAO)}</b> são escolhas: não existe dado brasileiro de voto em dois níveis para calibrá-las.
-A tabela de campos também é uma premissa e pode ser editada abaixo.</p>
+<p><b>α = 0,7</b>, <b>γ = ${v(GAMA_PADRAO)}</b> e <b>λ = 1</b> são escolhas: não existe dado brasileiro de voto em dois níveis para calibrar α e γ,
+e as prefeituras não distinguem bem λ. Os limites da coordenação também: o ponto de partida foram os exemplos de Sâmia × Tabata (se atrapalham) e
+Tabata × um nome fraco do PT (não). A tabela de campos também é uma premissa e pode ser editada abaixo.</p>
 <p><b>O voto é o de 2026, dado sob o sistema atual.</b> Num distrital de verdade, partidos fariam alianças, retirariam candidatos e
 fariam campanha de outro jeito, e o eleitor também mudaria. A simulação mostra o que <i>estes</i> votos dariam sob outras regras,
 não uma previsão de como seria uma eleição distrital.</p>
@@ -903,8 +922,6 @@ não contam para ninguém, como no TSE.</li>
 pelo método dos maiores restos: sem teto e com piso 8 (SP iria para ${S.base.rateios.sem_teto.SP}) ou proporcional puro, com piso 1
 (SP ${S.base.rateios.puro.SP}; Acre, Amapá e Roraima ficariam com ${S.base.rateios.puro.AC}).</p>`;
     const tb = d3.select("#t-campos tbody").html("");
-    const L = S.p.coord;
-    d3.select("#t-campos thead th:last-child").text(L ? `Vizinhos que coordenam (até ${String(L).replace(".", ",")})` : "Vizinhos (coordenação desligada)");
     const vivas = S.base.agrs.map((a, i) => i).filter(i => Object.values(S.base.uf).some(u => u.votos_agr[i]));
     vivas.sort((x, y) => (S.base.agrs[x].pos ?? 99) - (S.base.agrs[y].pos ?? 99)).forEach(i => {
       const a = S.base.agrs[i];
@@ -915,9 +932,6 @@ pelo método dos maiores restos: sem teto e com piso 8 (SP iria para ${S.base.ra
       tr.append("td").attr("class", "n").append("input").attr("type", "number").attr("min", 0).attr("max", 10).attr("step", 0.1)
         .style("width", "64px").property("value", S.pos[i] ?? "")
         .on("change", e => { const v = parseFloat(e.target.value); S.pos[i] = Number.isNaN(v) ? null : v; simula(); });
-      const viz = L ? vivas.filter(j => j !== i && a.pos != null && S.base.agrs[j].pos != null &&
-        Math.abs(S.base.agrs[j].pos - a.pos) <= L + 1e-9).map(j => siglaAgr(j)) : [];
-      tr.append("td").attr("class", "regiao").text(viz.join(", ") || "—");
     });
   }
 
