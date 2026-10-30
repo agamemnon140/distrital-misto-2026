@@ -29,6 +29,7 @@ py -m pipeline.rateio        # 3 rateios das 513 cadeiras (Censo 2022)
 py -m pipeline.tijolos       # municípios + células de Voronoi -> grafo de adjacência
 py -m pipeline.mapas         # 50 mapas por UF e nº de distritos (ReCom, ±10% de eleitorado)
 py -m pipeline.matrizes      # votos por distrito + emparelhamento candidato x distrito (sem e com coordenação)
+py -m pipeline.segundo_turno # fatia de Lula (2º turno) do eleitor de cada agremiação, por UF
 py -m pipeline.calibra       # κ, β, π, λ com prefeito 2024 em turno único (60-170 mil eleitores)
 py -m pipeline.exporta       # docs/dados/*.json (dist/ sem coordenação; dist_c{limiar}/ com)
 ```

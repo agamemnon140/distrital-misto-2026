@@ -156,6 +156,9 @@ def bairro_limpo(b) -> str | None:
 def main() -> None:
     ufs = sys.argv[1:] or UFS
     ags = agremiacoes()
+    l2 = json.loads((TRAB / "segundo_turno.json").read_text("utf-8"))
+    for a in ags:
+        a["lula"] = l2["_nacional"].get(a["id"])
     idx_agr = {a["id"]: i for i, a in enumerate(ags)}
     rt = rateios()
     base = {"agrs": ags,
@@ -174,6 +177,8 @@ def main() -> None:
         base["ks"][uf] = {nome: max(1, rt[nome][uf] // 2) for nome in RATEIOS}
         base["uf"][uf] = {
             "votos_agr": va,
+            # fatia de Lula no 2o turno entre os eleitores de cada agremiacao nesta UF (pipeline.segundo_turno)
+            "l2": [l2[uf].get(a["id"], l2["_nacional"].get(a["id"])) for a in ags],
             "cands": [[nr, nome, p, idx_agr[a], int(v), int(er)] for nr, nome, p, a, v, er in
                       zip(c["nr"], c["nome"], c["partido"], c["agr"], c["votos"], c["eleito_real"])],
         }
