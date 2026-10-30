@@ -13,7 +13,8 @@
  *   vence a maior votacao (maioria simples)
  * Lista (por estado): regra brasileira 2026 (QE/QP, 80%/20%, sobras + 3a fase do STF) ou D'Hondt.
  * Modelos: paralelo (distritos + lista independentes), compensatorio (cota total pela lista;
- * excedentes pela regra alema de 2023 ou pela antiga, com nivelamento) ou so lista fechada.
+ * excedentes pela regra alema de 2023 ou pela antiga, com nivelamento), so lista fechada ou dois
+ * candidatos por distrito (lado de Lula x lado de Flavio, com o voto do 2o turno presidencial).
  */
 (function (root) {
   "use strict";
@@ -263,8 +264,34 @@
     return { agr, V, cand, venc, segundo, tot, P, L, H, R, A, U, Tw };
   }
 
+  // ------------------------------------------------------------------ dois candidatos
+  /* So dois candidatos por distrito, um de cada lado do 2o turno presidencial (esquerda = Lula;
+   * centro e direita = Flavio, pela tabela de campos), e o distrito vota como votou para presidente.
+   * Cada lado lanca a agremiacao com mais votos de deputado ali (uma "primaria" pelo voto de 2026). */
+  function duelo(flat, p, lula, flavio, votosAgr) {
+    const passo = 5 + (p.gamas ? p.gamas.length : 0);
+    const lado = (a) => p.campoDe[a] === "esquerda" ? 0 : 1;
+    const agr = [-1, -1], T = [0, 0], cand = [-1, -1];
+    for (let o = 0; o < flat.length; o += passo) {
+      const a = flat[o];
+      if (a < 0) continue;
+      const l = lado(a);
+      if (flat[o + 1] > T[l]) { T[l] = flat[o + 1]; agr[l] = a; cand[l] = flat[o + 3] >= 0 ? flat[o + 3] : -1; }
+    }
+    // lado sem ninguem com voto aqui: a maior agremiacao dele no estado
+    for (const l of [0, 1]) {
+      if (agr[l] >= 0) continue;
+      let mx = -1;
+      for (const k in votosAgr) if (lado(+k) === l && votosAgr[k] > mx) { mx = votosAgr[k]; agr[l] = +k; }
+    }
+    const V = [lula, flavio], z = [0, 0];
+    const venc = lula >= flavio ? 0 : 1;
+    return { agr, V, cand, venc, segundo: 1 - venc, tot: lula + flavio, T, duelo: true,
+             P: z, L: z, H: z, R: z, A: z, U: z, Tw: z };
+  }
+
   // ------------------------------------------------------------------ estado
-  /* uf: {votos_agr, cands:[[nr,nome,partido,agr,votos,eleitoReal]]}; mapa: {d:[flat...]};
+  /* uf:{votos_agr, cands:[[nr,nome,partido,agr,votos,eleitoReal]]}; mapa: {d:[flat...]};
    * p: {S, modelo, regra, alfa, beta, gama, pi, excedentes, campoDe, agrId, gamas, afinidade, pos,
    *     lambda, kappa} */
   function simulaUF(uf, mapa, p) {
@@ -278,7 +305,9 @@
     // afinidade pelo 2o turno: posicao 0-10 = 10 x (1 - fatia de Lula do eleitor da agremiacao nesta UF)
     const pd = p.afinidade === "turno2"
       ? { ...p, afinidade: "espectro", pos: uf.l2.map(v => v == null ? null : 10 * (1 - v)) } : p;
-    const dist = mapa.d.map(flat => distrito(flat, pd));
+    const dist = p.modelo === "duelo"
+      ? mapa.d.map((flat, j) => duelo(flat, p, mapa.lula[j], mapa.flavio[j], votosAgr))
+      : mapa.d.map(flat => distrito(flat, pd));
     // vencedor de cada distrito: candidato emparelhado; sem ninguem com base local, o mais votado
     // da agremiacao no estado que ainda nao concorre em outro distrito (candidato "generico")
     const concorrem = new Set();
@@ -303,7 +332,8 @@
       // so lista fechada, sem distritos; a ordem da lista e a votacao nominal de 2026
       eleitosDistrito = [];
       eleitosLista = regra(votosAgr, cands, p.S, p.agrId, validos, true);
-    } else if (p.modelo === "paralelo") {
+    } else if (p.modelo === "paralelo" || p.modelo === "duelo") {
+      // dois candidatos: os distritos pelo 2o turno presidencial, a lista como no paralelo
       const ja = new Set(eleitosDistrito.map(v => v.cand));
       eleitosLista = regra(votosAgr, cands.filter(c => !ja.has(c.i)), p.S - k, p.agrId, validos);
     } else {

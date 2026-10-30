@@ -28,7 +28,7 @@ const dist = {};
 for (const uf of Object.keys(base.uf)) dist[uf] = JSON.parse(fs.readFileSync(path.join(D, "dist", uf + ".json"), "utf8"));
 const campoDe = base.agrs.map(a => a.campo);
 for (const rateio of base.nomes_rateio) {
-  for (const modelo of ["paralelo", "compensatorio", "lista"]) {
+  for (const modelo of ["paralelo", "compensatorio", "lista", "duelo"]) {
     for (const exc of modelo === "compensatorio" ? ["2023", "antiga"] : ["2023"]) {
       const r = A.simulaPais(base, dist, { rateio, modelo, regra: "brasil", alfa: 0.7, beta: 1, gama: 0.5, pi: 0.4, excedentes: exc, campoDe });
       for (const [m, x] of r.porMapa.entries()) {
@@ -104,6 +104,20 @@ for (const [nv, [t0, t2]] of Object.entries(base.niveis)) {
     }
   }
   ok(pares === 0, `coordenacao ${nv}: ${pares} pares que se atrapalham no mesmo distrito`);
+}
+// 6) dois candidatos: o lado vencedor e o do 2o turno presidencial no distrito; a lista e a do paralelo
+for (const [uf, u] of Object.entries(base.uf)) {
+  const k = base.ks[uf].atual;
+  for (const mapa of dist[uf][k].slice(0, 5)) {
+    const pp = { S: base.rateios.atual[uf], modelo: "duelo", regra: "dhondt", campoDe, agrId, gamas: base.gamas };
+    const r = A.simulaUF(u, mapa, pp);
+    r.dist.forEach((d, j) => {
+      const esq = campoDe[d.agr[d.venc]] === "esquerda";
+      ok(esq === (mapa.lula[j] >= mapa.flavio[j]), `${uf} distrito ${j}: lado errado`);
+      ok(campoDe[d.agr[0]] === "esquerda" && campoDe[d.agr[1]] !== "esquerda", `${uf} distrito ${j}: lados trocados`);
+    });
+    ok(r.eleitosDistrito.length + r.eleitosLista.length === pp.S, `${uf}: dois candidatos nao fecha a bancada`);
+  }
 }
 console.log(falhas ? `${falhas} falha(s)` : "tudo certo");
 process.exit(falhas ? 1 : 0);

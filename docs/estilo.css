@@ -122,6 +122,7 @@ button.fantasma:hover, button.fantasma.ativo { background: var(--wash); }
 .m-par { fill: var(--text-primary); }
 .m-comp { fill: var(--surface-1); stroke: var(--text-primary); stroke-width: 2; }
 .m-lista { fill: var(--wash); stroke: var(--text-secondary); stroke-width: 1.5; }
+.m-duelo { fill: none; stroke: var(--text-primary); stroke-width: 1.5; }
 .m-real { stroke: var(--text-primary); stroke-width: 2; }
 .m-faixa { stroke: var(--axis); stroke-width: 6; stroke-linecap: round; }
 
