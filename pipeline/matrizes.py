@@ -186,16 +186,18 @@ def forca_esperada(Vc: np.ndarray, Va: np.ndarray, nom: np.ndarray, cand_agr: np
 
 def emparelha_coord(Vc: np.ndarray, forca: np.ndarray, tot: np.ndarray, cand_agr: np.ndarray,
                     x: np.ndarray, nivel: tuple) -> tuple[np.ndarray, np.ndarray]:
-    """Como emparelha, com coordenacao. forca: voto esperado / distrito (teste de conflito);
-    prioridade = forca + voto pessoal / distrito. x: posicao de cada agremiacao (nan = nunca conflita).
-    Devolve (escolhido[k, n_agr], bloq[k, n_agr])."""
+    """Como emparelha, com coordenacao. Forca = voto esperado / distrito + voto pessoal / distrito
+    (o nome conta duas vezes): e a prioridade e o que entra no teste de conflito. x: posicao de cada
+    agremiacao (nan = nunca conflita). Devolve (escolhido[k, n_agr], bloq[k, n_agr], apoio[k, n_agr]):
+    apoio = agremiacao a favor da qual a retirada foi feita (-1 se nao se retirou)."""
     t0, t2, dw = nivel
     k, n_agr = Vc.shape[0], len(x)
     escolhido = -np.ones((k, n_agr), dtype=np.int32)
     bloq = np.zeros((k, n_agr), dtype=bool)
+    apoio = -np.ones((k, n_agr), dtype=np.int32)
     usado = np.zeros(Vc.shape[1], dtype=bool)
-    f = np.where(Vc > 0, forca, -1.0)
-    prio = np.where(f >= 0, f + Vc / np.maximum(1, tot), -1.0)
+    prio = np.where(Vc > 0, forca + Vc / np.maximum(1, tot), -1.0)
+    f = prio
     ordem = np.argsort(-prio, axis=None, kind="stable")
     for flat in ordem:
         d, c = divmod(int(flat), Vc.shape[1])
@@ -205,21 +207,23 @@ def emparelha_coord(Vc: np.ndarray, forca: np.ndarray, tot: np.ndarray, cand_agr
         if usado[c] or escolhido[d, a] >= 0 or bloq[d, a]:
             continue
         if f[d, c] >= t0 and not np.isnan(x[a]):
-            perto = np.inf
+            perto, quem = np.inf, -1
             for b in np.flatnonzero(escolhido[d] >= 0):
                 if np.isnan(x[b]):
                     continue
                 dist = abs(x[a] - x[b])
-                if min(f[d, c], f[d, escolhido[d, b]]) >= limite(dist, t0, t2):
-                    perto = min(perto, dist)
+                if min(f[d, c], f[d, escolhido[d, b]]) >= limite(dist, t0, t2) and dist < perto:
+                    perto, quem = dist, b
             if perto < np.inf:
                 if perto <= dw:
                     bloq[d, a] = True
+                    apoio[d, a] = quem
                 continue
         escolhido[d, a] = c
         usado[c] = True
     bloq &= escolhido < 0
-    return escolhido, bloq
+    apoio[~bloq] = -1
+    return escolhido, bloq, apoio
 
 
 def processa(uf: str, k: int, ins: dict, nivel: tuple | None = None, x: np.ndarray | None = None,
@@ -236,9 +240,10 @@ def processa(uf: str, k: int, ins: dict, nivel: tuple | None = None, x: np.ndarr
         Vc = (P @ ins["C"]).toarray()
         if nivel is None:
             esc, bloq = emparelha(Vc, ins["cand_agr"], n_agr), np.zeros((k, n_agr), dtype=bool)
+            apoio = -np.ones((k, n_agr), dtype=np.int32)
         else:
             forca = forca_esperada(Vc, Va, np.asarray(Vc @ G), ins["cand_agr"])
-            esc, bloq = emparelha_coord(Vc, forca, Va.sum(1, keepdims=True), ins["cand_agr"], x, nivel)
+            esc, bloq, apoio = emparelha_coord(Vc, forca, Va.sum(1, keepdims=True), ins["cand_agr"], x, nivel)
         own = np.where(esc >= 0, np.take_along_axis(Vc, np.maximum(esc, 0), axis=1), 0)
         own_c = own[:, ins["cand_agr"]]                                  # proprio do escolhido da agremiacao
         escolhido = esc[:, ins["cand_agr"]] == np.arange(len(ins["cand_agr"]))[None, :]
@@ -247,7 +252,7 @@ def processa(uf: str, k: int, ins: dict, nivel: tuple | None = None, x: np.ndarr
         razao[escolhido] = 0.0
         Xg = np.stack([np.asarray((Vc * razao ** g) @ G) for g in GAMAS])
         saida.append({"Va": Va.astype(np.int64), "esc": esc, "own": own.astype(np.int64),
-                      "nom": np.asarray(Vc @ G).astype(np.int64), "Xg": np.rint(Xg).astype(np.int64), "bloq": bloq,
+                      "nom": np.asarray(Vc @ G).astype(np.int64), "Xg": np.rint(Xg).astype(np.int64), "bloq": bloq, "apoio": apoio,
                       "aptos": P @ ins["aptos"], "pop": P @ ins["pop"],
                       "lula": P @ ins["lula"], "flavio": P @ ins["flavio"]})
     return {"mapas": mapas, "dist": saida}

@@ -73,14 +73,15 @@ for (const [pasta, extra] of cenarios) {
         ok(Math.abs(d.P[i] + d.L[i] + d.H[i] + d.R[i] + d.A[i] + d.U[i] - v) < 1e-6 * T, `${pasta} ${uf}: decomposicao nao fecha`);
         ok(d.L[i] >= 0 && d.P[i] >= 0, `${pasta} ${uf}: legenda ou voto proprio negativo`);
         if (d.cand[i] >= 0) ok(d.P[i] <= base.uf[uf].cands[d.cand[i]][4], `${pasta} ${uf}: voto proprio maior que o total`);
-        if (d.cand[i] === -2) ok(v === 0, `${pasta} ${uf}: quem se retirou ainda tem voto`);
+        if (d.cand[i] <= -100) ok(v === 0, `${pasta} ${uf}: quem se retirou ainda tem voto`);
+        if (d.cand[i] <= -100) ok(d.agr.some((a, q) => a === -d.cand[i] - 100 && d.cand[q] > -100), `${pasta} ${uf}: apoiado nao concorre`);
       });
     }
   }
 }
 
-// 6) coordenacao: nenhum par de candidatos que concorrem no mesmo distrito "se atrapalha" -- o voto
-// pessoal (P / total do distrito) do mais fraco fica abaixo de t0 * (t2/t0)^(distancia/2)
+// 6) coordenacao: nenhum par de candidatos que concorrem no mesmo distrito "se atrapalha" -- a forca
+// do mais fraco fica abaixo de t0 * (t2/t0)^(distancia/2)
 for (const [nv, [t0, t2]] of Object.entries(base.niveis)) {
   let pares = 0;
   for (const uf of Object.keys(base.uf)) {
@@ -89,7 +90,11 @@ for (const [nv, [t0, t2]] of Object.entries(base.niveis)) {
       const passo = 5 + base.gamas.length, correm = [];
       let tot = 0;
       for (let o = 0; o < flat.length; o += passo) tot += flat[o + 1];
-      for (let o = 0; o < flat.length; o += passo) if (flat[o + 3] >= 0 && flat[o] >= 0) correm.push([flat[o], flat[o + passo - 1] / tot]);
+      // forca = (proprio + legenda + 0,7 x heranca com gama 0,5) / total + proprio / total
+      for (let o = 0; o < flat.length; o += passo) if (flat[o + 3] >= 0 && flat[o] >= 0) {
+        const P = flat[o + passo - 1], L = flat[o + 1] - flat[o + 2] - P, Xg = flat[o + 4 + base.gamas.indexOf(0.5)];
+        correm.push([flat[o], (P + L + 0.7 * Xg) / tot + P / tot]);
+      }
       for (let a = 0; a < correm.length; a++) for (let b = a + 1; b < correm.length; b++) {
         const pa = pos[correm[a][0]], pb = pos[correm[b][0]];
         if (pa == null || pb == null) continue;

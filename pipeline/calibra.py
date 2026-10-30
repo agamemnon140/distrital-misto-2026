@@ -195,12 +195,23 @@ def cidades(d: pd.DataFrame) -> list[dict]:
             proprio.append(sum(vp.get(nr, 0) for nr in fed))
             cabecas |= fed
         fora = sorted(nr for nr in vp if nr not in cabecas)          # partidos sem candidato a prefeito
+        # a qual candidato cada partido sem candidato esta coligado (-1 = a nenhum)
+        coligado = {}
+        for j, comp in enumerate(p["DS_COMPOSICAO_COLIGACAO"]):
+            for sg in _siglas(comp):
+                nr = nr_da_sigla.get(sg)
+                if nr in vp and nr not in cabecas:
+                    coligado.setdefault(nr, j)
+        uf_c = g["SG_UF"].iloc[0]
         out.append({"aptos": n, "top2": float(np.sort(so)[-2:].sum()), "ncand": len(p), "fo": fo,
                     "s": s, "x": x, "pc": pc,
                     "x2": np.array([np.nanmean([x2(g["SG_UF"].iloc[0], nr) for nr in agr[a]]) if agr[a] else np.nan for a in ids]),
                     "c_base": np.array(proprio) / tot, "w_v": np.array([vp[nr] for nr in fora]) / tot,
                     "w_x": np.array([nt.get(nr, np.nan) for nr in fora]),
                     "w_pc": np.array([POS.get(campo.get(FED24.get(nr, nr)), -1) for nr in fora]),
+                    "w_col": np.array([coligado.get(nr, -1) for nr in fora]),
+                    "w_x2": np.array([x2(uf_c, nr) for nr in fora]),
+                    "c_x2": np.array([x2(uf_c, nr) for nr in p["NR_PARTIDO"]]),
                     "c_obs": so, "c_pc": np.array([POS.get(campo.get(nr), -1) for nr in p["NR_PARTIDO"]]),
                     "c_x": np.array([nt.get(nr, np.nan) for nr in p["NR_PARTIDO"]])})
     return out
@@ -293,6 +304,39 @@ def com_coordenacao(cs: list[dict], espectro: bool) -> dict:
     return r
 
 
+def endosso_turno2(cs: list[dict], beta: float, pi: float, lam: float = 1.0) -> dict:
+    """kappa da regra de acordo do simulador, no modo 2o turno: o partido sem candidato passa kappa
+    dos votos ao candidato da sua coligacao (indicacao) e o resto por afinidade x tamanho; depois
+    beta/pi (os do desenho "todos concorrem"). Alvo: a votacao de cada candidato."""
+    E = np.zeros((len(cs), len(GRADE)))
+    T2 = np.zeros_like(E)
+    for k, c in enumerate(cs):
+        base = c["c_base"]
+        K = np.nan_to_num(np.exp(-np.abs(c["w_x2"][:, None] - c["c_x2"][None, :]) / lam)) * base[None, :]
+        soma = K.sum(1, keepdims=True)
+        peso = np.where(soma > 0, K / np.where(soma > 0, soma, 1), base[None, :] / base.sum())
+        aff = c["w_v"][:, None] * peso                                   # [partido fora, candidato]
+        ind = np.zeros_like(aff)
+        for w, j in enumerate(c["w_col"]):
+            if j >= 0:
+                ind[w, j] = c["w_v"][w]
+            else:
+                ind[w] = aff[w]                                          # sem coligacao: so afinidade
+        for q, ka in enumerate(GRADE):
+            sv = base + ka * ind.sum(0) + (1 - ka) * aff.sum(0)
+            V = modelo(sv, c["c_pc"], beta, pi, c["c_x2"], lam)
+            V = V / V.sum()
+            E[k, q] = ((V - c["c_obs"]) ** 2).sum()
+            T2[k, q] = np.sort(V)[-2:].sum()
+    j = int(E.sum(0).argmin())
+    rng = np.random.default_rng(2024)
+    boot = [GRADE[int(E[rng.integers(0, len(cs), len(cs))].sum(0).argmin())] for _ in range(300)]
+    return {"kappa": float(GRADE[j]), "ic90_kappa": [float(x) for x in np.percentile(boot, [5, 95])],
+            "erro": round(float(E[:, j].mean()), 4), "erro_kappa0": round(float(E[:, 0].mean()), 4),
+            "erro_kappa1": round(float(E[:, -1].mean()), 4), "top2_previsto": round(float(T2[:, j].mean()), 3),
+            "curva": [round(float(x), 4) for x in E.mean(0)]}
+
+
 def main() -> None:
     cs = cidades(carrega())
     tab = pd.DataFrame({"aptos": [c["aptos"] for c in cs], "top2": [c["top2"] for c in cs],
@@ -311,6 +355,8 @@ def main() -> None:
         print(modo, json.dumps({k: {kk: vv for kk, vv in v.items() if kk != "curva"} for k, v in r[modo].items()}), flush=True)
     # afinidade pelo 2o turno de 2026 (por UF): so o desenho "todos concorrem"
     r["turno2"] = {"sem": sem_coordenacao(sel, True, "x2")}
+    r["turno2"]["com"] = endosso_turno2(sel, r["turno2"]["sem"]["beta"], r["turno2"]["sem"]["pi"])
+    print("turno2 com", json.dumps({k: v for k, v in r["turno2"]["com"].items() if k != "curva"}), flush=True)
     print("turno2", json.dumps({k: v for k, v in r["turno2"]["sem"].items() if k != "curva"}), flush=True)
     r["top2_sem_ajuste"] = r["campos"]["sem"]["top2_sem_ajuste"]
     (SAIDA_WEB / "calibra.json").write_text(json.dumps(r, ensure_ascii=False, indent=1), "utf-8")

@@ -58,6 +58,7 @@ def mapas_json(variante: dict, k: int, loc_agr: np.ndarray) -> list[dict]:
     mapas = []
     for d in variante[k]["dist"]:
         Va, esc, own, bloq = d["Va"], d["esc"], d["own"], d["bloq"]
+        apoio = d.get("apoio", -np.ones_like(esc))
         distritos = []
         for j in range(k):
             T = Va[j]
@@ -70,8 +71,10 @@ def mapas_json(variante: dict, k: int, loc_agr: np.ndarray) -> list[dict]:
                 X = int(d["nom"][j, a] - own[j, a])
                 Xg = [int(x) for x in d["Xg"][:, j, a]] + [int(own[j, a])]
                 if pos < PODA_TOPO or T[a] >= PODA_FRACAO * tot:
-                    # cand = -2: retirou o partido do distrito por acordo com um vizinho que concorre ali
-                    linha += [int(loc_agr[a]), int(T[a]), X, -2 if bloq[j, a] else int(esc[j, a])] + Xg
+                    # cand <= -100: retirou o partido do distrito por acordo, em favor da agremiacao
+                    # (indice global) -cand - 100, que concorre ali
+                    c_ = -(100 + int(loc_agr[apoio[j, a]])) if bloq[j, a] else int(esc[j, a])
+                    linha += [int(loc_agr[a]), int(T[a]), X, c_] + Xg
                 else:
                     outros += [int(T[a]), X] + Xg
             if outros[0]:
