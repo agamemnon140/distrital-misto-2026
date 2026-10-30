@@ -56,10 +56,15 @@ ok(chave(l1.porMapa[0]) === chave(l2.porMapa[0]), "lista fechada depende de alfa
 for (const uf of ["SP", "AC", "MG"]) {
   const k = base.ks[uf].atual;
   for (const flat of dist[uf][k][0].d) {
-    const passo = 4 + base.gamas.length;
+    const passo = 5 + base.gamas.length;
     let T = 0; for (let i = 1; i < flat.length; i += passo) T += flat[i];
     const d = A.distrito(flat, { alfa: 0.7, beta: 1, gama: 0.5, pi: 0.4, campoDe, gamas: base.gamas });
     ok(Math.abs(d.tot - T) < 1e-6 * T, `${uf}: distrito nao conserva votos`);
+    d.V.forEach((v, i) => {
+      ok(Math.abs(d.P[i] + d.L[i] + d.H[i] + d.R[i] + d.U[i] - v) < 1e-6 * T, `${uf}: decomposicao nao fecha`);
+      ok(d.L[i] >= 0 && d.P[i] >= 0, `${uf}: legenda ou voto proprio negativo`);
+      if (d.cand[i] >= 0) ok(d.P[i] <= base.uf[uf].cands[d.cand[i]][4], `${uf}: voto proprio maior que o total`);
+    });
   }
 }
 console.log(falhas ? `${falhas} falha(s)` : "tudo certo");

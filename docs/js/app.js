@@ -78,7 +78,7 @@
   const siglaAgr = (a) => a < 0 ? "outros" : (NOME[S.base.agrs[a].sigla] || S.base.agrs[a].sigla);
 
   // ------------------------------------------------------------------ simulacao
-  function params(extra) { return { ...S.p, campoDe: S.campoDe, ...extra }; }
+  function params(extra) { return { ...S.p, campoDe: S.campoDe, gamas: S.base.gamas, ...extra }; }
 
   function simula() {
     const modelos = {};
@@ -117,6 +117,7 @@
     S.aba = g("t", String) || S.aba; S.ufMap = g("uf", String) || S.ufMap;
     S.mapa = g("n", Number) || 0; S.camada = g("c", String) || S.camada;
     zoomPendente = g("z", String) || null;
+    abrirPendente = g("d", Number);
   }
 
   // ------------------------------------------------------------------ filtros
@@ -354,16 +355,18 @@
     $("#h-uf-dist").textContent = S.p.modelo === "lista" ? "Distritos deste mapa (só no distrital; a lista fechada não usa)" : "Distritos deste mapa";
     const regs = S.mapas[uf] ? regioes(uf, k, m) : null;
     if (!regs) carregaUF(uf).then(() => { if (S.ufRes === uf) desenhaUFRes(); });
+    const set = abertosDe("res", JSON.stringify([uf, S.p.rateio, m]));
     r.vencedores.forEach((v, j) => {
       const d = r.dist[j];
       const tr = td.append("tr");
-      tr.append("td").text(j + 1);
+      tr.append("td").attr("class", "seta").text(j + 1);
       const c = v.cand >= 0 ? cs[v.cand] : null;
       tr.append("td").html(c ? `${c[1]} <span class="faixa-txt">${sigla(c[2])}</span>${sem.has(j) ? ' <span class="faixa-txt">(sem cobertura: distrito fica vago)</span>' : ""}` : siglaAgr(v.agr));
       tr.append("td").attr("class", "n").text(pct(v.pct));
       tr.append("td").attr("class", "n").text(pct(v.margem));
       tr.append("td").text(siglaAgr(d.agr[d.segundo]));
       tr.append("td").attr("class", "regiao").html(regs ? textoRegiao(regs[j], true) : "…");
+      ligaDetalhe(td, tr, 6, set, j, () => htmlCandidatos(uf, r, j));
     });
     const lista = r.eleitosLista.map(i => cs[i]).sort((a, b) => b[4] - a[4]);
     $("#lista-uf").textContent = lista.length ? lista.map(c => `${c[1]} (${sigla(c[2])})`).join(" · ") : "nenhum";
@@ -592,7 +595,8 @@
       let extra = `<br><span class="m">Aqui: ${esc(tij.mun[f.properties.i])}${bi.length ? " · " + esc(tij.bairros[bi[0]]) : ""}</span>`;
       if (instavel) extra += `<br><span class="m">vencedor diferente do mais comum em ${pct(instavel[f.properties.i], 0)} dos mapas</span>`;
       mostraDica(ev, htmlDist(d) + extra);
-    }).on("mouseleave", () => { g.select(".realce").attr("d", null); escondeDica(); });
+    }).on("mouseleave", () => { g.select(".realce").attr("d", null); escondeDica(); })
+      .on("click", (ev, f) => abreDistrito(a[f.properties.i]));
 
     // --- legenda
     const leg = $("#leg-mapa");
@@ -604,7 +608,7 @@
     else if (S.camada === "aptos") leg.innerHTML = rampa(d3.range(9).map(i => div(i / 8)), "−10%", "+10% da média");
     else leg.innerHTML = rampa(seq, "o desenho não muda o vencedor", "muda em metade dos mapas");
     $("#n-mapa").textContent = `${UF_NOME[uf]}: ${k} distritos de ${k > 1 ? "≈" + num(mAp) : num(mAp)} eleitores. ` +
-      `Cidades grandes foram quebradas em células em volta dos locais de votação. Role para dar zoom; passe o mouse num distrito.`;
+      `Cidades grandes foram quebradas em células em volta dos locais de votação. Role para dar zoom; passe o mouse num distrito e clique para ver os candidatos dele.`;
 
     desenhaDiferencas(uf, k, res);
     desenhaTabelaDist(uf, r, dm, mAp, regs);
@@ -642,16 +646,86 @@
       `O traço preto é o mapa ${S.mapa + 1}. À direita, o mínimo e o máximo entre os 50 desenhos.`;
   }
 
+  // ------------------------------------------------------------------ candidatos de um distrito
+  // linhas clicaveis: abrem a disputa do distrito, candidato por candidato, com a origem dos votos
+  const abertos = { mapas: { chave: null, set: new Set() }, res: { chave: null, set: new Set() } };
+  function abertosDe(qual, chave) {
+    const a = abertos[qual];
+    if (a.chave !== chave) { a.chave = chave; a.set = new Set(); }
+    return a.set;
+  }
+  const sinal = (x) => Math.round(x) === 0 ? "0" : (x > 0 ? "+" : "−") + num(Math.abs(x));
+
+  function htmlCandidatos(uf, r, j) {
+    const cs = S.base.uf[uf].cands, d = r.dist[j], v = r.vencedores[j];
+    const ordem = [...d.V.keys()].sort((a, b) => d.V[b] - d.V[a]);
+    const linhas = ordem.map((i, pos) => {
+      let ci = d.cand[i];
+      if (ci < 0 && i === d.venc && v.cand >= 0) ci = v.cand;     // vencedor sem base local: o "generico"
+      const c = ci >= 0 ? cs[ci] : null;
+      const nome = d.agr[i] < 0 ? "<i>outras agremiações</i>"
+        : c ? `${esc(c[1])} <span class="faixa-txt">${sigla(c[2])}${S.base.agrs[d.agr[i]].partidos.length > 1 ? " · " + siglaAgr(d.agr[i]) : ""}</span>`
+        : `<i>${siglaAgr(d.agr[i])}</i> <span class="faixa-txt">sem candidato com voto aqui</span>`;
+      const real = c ? (c[5] ? "eleito" : "não eleito") : "";
+      const ali = c && c[4] ? pct(d.P[i] / c[4], 0) : "";
+      return `<tr${i === d.venc ? ' class="venc"' : ""}><td>${pos + 1}</td><td>${nome}</td>` +
+        `<td class="n">${num(d.P[i])}</td><td class="n">${num(d.L[i])}</td><td class="n">${num(d.H[i])}</td>` +
+        `<td class="n">${sinal(d.R[i])}</td><td class="n">${sinal(d.U[i])}</td>` +
+        `<td class="n"><b>${num(d.V[i])}</b></td><td class="n">${pct(d.V[i] / d.tot)}</td>` +
+        `<td class="n">${c ? num(c[4]) : ""}</td><td class="n">${ali}</td><td>${real}</td></tr>`;
+    }).join("");
+    return `<table class="tabela sub"><thead><tr><th></th><th>Candidato</th><th class="n">Voto próprio aqui</th><th class="n">Legenda</th>
+      <th class="n">Herdado de colegas</th><th class="n">De outros partidos</th><th class="n">Voto útil e polarização</th>
+      <th class="n">Simulado</th><th class="n">%</th><th class="n">Total real no estado</th><th class="n">Aqui / total</th><th>Em 2026</th></tr></thead>
+      <tbody>${linhas}</tbody></table>
+      <p class="nota">Voto próprio, legenda e total real são votos de verdade de 2026. "Herdado de colegas" é o que ele leva dos colegas de partido
+      que não concorrem aqui (α = ${String(S.p.alfa).replace(".", ",")}, γ = ${String(S.p.gama).replace(".", ",")}); "De outros partidos" é o que
+      chega do voto que os outros não herdaram; a última etapa é o voto útil no campo (β) e a polarização (π).
+      "Aqui / total": quanto da votação real do candidato no estado veio deste distrito.</p>`;
+  }
+
+  // tr: linha do distrito; ncol: colunas da tabela; set: distritos abertos
+  function ligaDetalhe(tb, tr, ncol, set, j, html) {
+    const det = tb.append("tr").attr("class", "detalhe");
+    const td = det.append("td").attr("colspan", ncol);
+    const seta = tr.select("td");
+    const mostra = () => {
+      const on = set.has(j);
+      det.property("hidden", !on);
+      seta.text(`${on ? "▾" : "▸"} ${j + 1}`);
+      tr.attr("aria-expanded", String(on));
+      if (on && !td.html()) td.html(html());
+    };
+    const alterna = () => { if (set.has(j)) set.delete(j); else set.add(j); mostra(); };
+    tr.classed("clicavel", true).attr("tabindex", 0).on("click", alterna)
+      .on("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); alterna(); } });
+    mostra();
+    return det;
+  }
+
+  let ultTabela = null, abrirPendente;
+  function abreDistrito(j) {
+    if (!ultTabela) return;
+    abertosDe("mapas", ultTabela.chave).add(j);
+    desenhaTabelaDist(...ultTabela.args);
+    const tr = document.querySelector(`#t-dist tbody tr[data-j="${j}"]`);
+    if (tr) tr.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   function desenhaTabelaDist(uf, r, dm, mAp, regs) {
     const cs = S.base.uf[uf].cands;
+    const chave = JSON.stringify([uf, S.p.rateio, S.mapa]);
+    ultTabela = { chave, args: [uf, r, dm, mAp, regs] };
+    const set = abertosDe("mapas", chave);
+    if (abrirPendente >= 1) { set.add(abrirPendente - 1); abrirPendente = undefined; }
     $("#h-tab-dist").textContent = `Distritos do mapa ${S.mapa + 1} — ${UF_NOME[uf]}`;
     const tb = d3.select("#t-dist tbody").html("");
     const sem = new Set(r.semEleito);
     r.vencedores.forEach((v, j) => {
       const c = v.cand >= 0 ? cs[v.cand] : null;
       const l = dm.lula[j], f = dm.flavio[j];
-      const tr = tb.append("tr");
-      tr.append("td").text(j + 1);
+      const tr = tb.append("tr").attr("data-j", j);
+      tr.append("td").attr("class", "seta").text(j + 1);
       tr.append("td").attr("class", "n").text(num(dm.aptos[j]));
       const dv = dm.aptos[j] / mAp - 1;
       tr.append("td").attr("class", "n").text((dv >= 0 ? "+" : "−") + pct(Math.abs(dv)));
@@ -661,6 +735,7 @@
       tr.append("td").attr("class", "n").text(pct(v.pct));
       tr.append("td").attr("class", "n").text(pct(v.margem));
       tr.append("td").attr("class", "regiao").html(textoRegiao(regs[j], false));
+      ligaDetalhe(tb, tr, 9, set, j, () => htmlCandidatos(uf, r, j));
     });
   }
 
