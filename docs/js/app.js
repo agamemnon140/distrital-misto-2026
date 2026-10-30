@@ -62,10 +62,11 @@
   }
 
   // beta, pi e lambda: calibracao "todos concorrem" (a coordenacao so tira os fortes que se atrapalham;
-  // os nomes fracos continuam no distrito); kappa: calibracao com as coligacoes
+  // os nomes fracos continuam no distrito). kappa = 1: todo o voto de quem sai vai por afinidade x
+  // tamanho (escolha do usuario; a calibracao com coligacoes sugere menos, mas mede mal)
   function calibrados(p) {
-    const s = S.cal[p.afinidade].sem, c = S.cal[p.afinidade].com;
-    return { beta: s.beta, pi: s.pi, lambda: s.lambda || 1, kappa: c.kappa };
+    const s = S.cal[p.afinidade].sem;
+    return { beta: s.beta, pi: s.pi, lambda: s.lambda || 1, kappa: 1 };
   }
 
   // distritos da variante ativa (sem coordenacao ou com uma intensidade); cada uma e baixada uma vez
@@ -130,7 +131,7 @@
   // ------------------------------------------------------------------ hash (estado compartilhavel)
   function escreveHash() {
     const p = S.p;
-    const h = `m=${p.modelo}&r=${p.rateio}&l=${p.regra}&a=${p.alfa}&g=${p.gama}&b=${p.beta}&p=${p.pi}&af=${p.afinidade}&co=${p.coord}&la=${p.lambda}&ka=${p.kappa}&e=${p.excedentes}&t=${S.aba}&uf=${S.ufMap}&n=${S.mapa}&c=${S.camada}${zoomAtual ? "&z=" + encodeURIComponent(zoomAtual) : ""}`;
+    const h = `m=${p.modelo}&r=${p.rateio}&l=${p.regra}&a=${p.alfa}&g=${p.gama}&b=${p.beta}&p=${p.pi}&af=${p.afinidade}&co=${p.coord}&la=${p.lambda}&ka=${p.kappa}&e=${p.excedentes}&t=${S.aba}&uf=${S.ufMap}&n=${S.mapa}&c=${S.camada}${zoomAtual ? "&z=" + encodeURIComponent(zoomAtual) : ""}${buscado ? "&dep=" + encodeURIComponent(buscado.rotulo) : ""}`;
     history.replaceState(null, "", "#" + h);
   }
   function lerHash() {
@@ -148,6 +149,7 @@
     S.mapa = g("n", Number) || 0; S.camada = g("c", String) || S.camada;
     zoomPendente = g("z", String) || null;
     abrirPendente = g("d", Number);
+    buscaHash = g("dep", String) || null;
   }
 
   // ------------------------------------------------------------------ filtros
@@ -499,11 +501,12 @@
     if (!fu.options.length) {
       const ufs = Object.keys(base.uf).sort((a, b) => UF_NOME[a].localeCompare(UF_NOME[b]));
       fu.innerHTML = ufs.map(u => `<option value="${u}">${UF_NOME[u]}</option>`).join("");
-      fu.onchange = e => { S.ufMap = e.target.value; zoomAtual = null; desenhaMapas(); };
+      fu.onchange = e => { S.ufMap = e.target.value; zoomAtual = null; buscado = null; $("#f-busca").value = ""; $("#busca-res").textContent = ""; desenhaMapas(); };
       $("#f-mapa").oninput = e => { S.mapa = +e.target.value; desenhaMapas(); };
       $("#b-ant").onclick = () => { S.mapa = (S.mapa + 49) % 50; desenhaMapas(); };
       $("#b-prox").onclick = () => { S.mapa = (S.mapa + 1) % 50; desenhaMapas(); };
       $("#f-camada").onchange = e => { S.camada = e.target.value; desenhaMapas(); };
+      ligaBusca();
     }
     fu.value = S.ufMap; $("#f-mapa").value = S.mapa; $("#f-camada").value = S.camada;
     $("#o-mapa").textContent = `${S.mapa + 1} de 50`;
@@ -659,6 +662,72 @@
 
     desenhaDiferencas(uf, k, res);
     desenhaTabelaDist(uf, r, dm, mAp, regs);
+
+    // --- deputado buscado: zoom no distrito, realce e linha aberta
+    if (buscado && buscado.uf === uf) {
+      const i = buscado.i, c = cs[i];
+      const j = r.dist.findIndex((d, jj) => d.cand.includes(i) || r.vencedores[jj].cand === i);
+      const emMapas = res.filter(rr => rr.dist.some((d, jj) => d.cand.includes(i) || rr.vencedores[jj].cand === i)).length;
+      const vence = res.filter(rr => rr.vencedores.some(v => v.cand === i)).length;
+      const naLista = r.eleitosLista.includes(i);
+      const nome = `<b>${esc(c[1])}</b> (${sigla(c[2])}-${uf}, ${num(c[4])} votos em 2026${c[5] ? ", eleito" : ""})`;
+      const geral = ` Nos 50 mapas: concorre a distrito em ${emMapas} e vence em ${vence}.`;
+      if (j >= 0) {
+        const v = r.vencedores[j], d = r.dist[j], q = d.cand.indexOf(i);
+        const pctC = q >= 0 ? pct(d.V[q] / d.tot) : pct(v.pct);
+        $("#busca-res").innerHTML = `${nome} concorre no <b>distrito ${j + 1}</b> do mapa ${S.mapa + 1}, com ${pctC} dos votos: ` +
+          (v.cand === i ? "<b>vence</b>." : `perde para ${v.cand >= 0 ? esc(cs[v.cand][1]) : siglaAgr(v.agr)}${naLista ? ", mas entra pela lista" : ""}.`) + geral;
+        const [[x0, y0], [x1, y1]] = path.bounds(formas[j]);
+        const s = Math.min(60, 0.7 / Math.max((x1 - x0) / W, (y1 - y0) / H));
+        svg.transition().duration(600).call(zoom.transform,
+          d3.zoomIdentity.translate(W / 2, H / 2).scale(s).translate(-(x0 + x1) / 2, -(y0 + y1) / 2));
+        g.select(".realce").attr("d", path(formas[j]));
+        if (buscado.abrir) { buscado.abrir = false; abreDistrito(j, false); }
+      } else {
+        g.select(".realce").attr("d", null);
+        $("#busca-res").innerHTML = `${nome} não disputa distrito no mapa ${S.mapa + 1}` +
+          (S.p.modelo === "lista" ? "." : (naLista ? ": entra pela lista." : ": fica só na lista e não se elege.")) + geral;
+      }
+    } else if (buscado) {
+      $("#busca-res").textContent = "";
+    }
+  }
+
+  // ------------------------------------------------------------------ busca de deputado
+  let buscado = null, buscaHash = null;
+  const rotuloCand = (uf, c) => `${c[1]} (${sigla(c[2])}-${uf})`;
+  function ligaBusca() {
+    const indice = new Map();
+    const opcoes = [];
+    for (const uf of Object.keys(S.base.uf).sort()) {
+      S.base.uf[uf].cands.forEach((c, i) => {
+        const rot = rotuloCand(uf, c);
+        indice.set(norm(rot), { uf, i });
+        opcoes.push([c[4], rot]);
+      });
+    }
+    // os mais votados primeiro, para a lista de sugestoes comecar pelos nomes conhecidos
+    $("#l-busca").innerHTML = opcoes.sort((a, b) => b[0] - a[0]).map(([, r]) => `<option value="${esc(r)}">`).join("");
+    const procura = () => {
+      const alvo = indice.get(norm($("#f-busca").value.trim()));
+      if (!alvo) return;
+      buscado = { ...alvo, abrir: true, rotulo: $("#f-busca").value.trim() };
+      if (S.ufMap !== alvo.uf) { S.ufMap = alvo.uf; zoomAtual = null; }
+      desenhaMapas();
+    };
+    $("#f-busca").addEventListener("change", procura);
+    $("#f-busca").addEventListener("input", procura);
+    if (buscaHash) {
+      // aceita o rotulo completo ("Nome (PARTIDO-UF)") ou so o comeco do nome
+      const q = norm(buscaHash);
+      const achado = indice.has(q) ? buscaHash : [...indice.keys()].find(r => r.startsWith(q));
+      buscaHash = null;
+      if (achado) {
+        const alvo = indice.get(norm(achado));
+        $("#f-busca").value = rotuloCand(alvo.uf, S.base.uf[alvo.uf].cands[alvo.i]);
+        procura();
+      }
+    }
   }
 
   function desenhaDiferencas(uf, k, res) {
@@ -758,12 +827,12 @@
   }
 
   let ultTabela = null, abrirPendente;
-  function abreDistrito(j) {
+  function abreDistrito(j, rolar = true) {
     if (!ultTabela) return;
     abertosDe("mapas", ultTabela.chave).add(j);
     desenhaTabelaDist(...ultTabela.args);
     const tr = document.querySelector(`#t-dist tbody tr[data-j="${j}"]`);
-    if (tr) tr.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (tr && rolar) tr.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function desenhaTabelaDist(uf, r, dm, mAp, regs) {
@@ -840,27 +909,30 @@ continua na lista, na ordem de votação nominal.</p>
 <ul>
 <li><b>Sem coordenação</b>, cada agremiação tem um candidato em cada distrito. Onde ela não tem ninguém com base local, entra o mais votado dela
 no estado que ainda está livre.</li>
-<li><b>Com coordenação</b>, candidatos fortes de partidos próximos não disputam o mesmo distrito. Dois candidatos "se atrapalham" quando o mais
-fraco dos dois tem, ali, voto pessoal acima de um limite que cresce com a distância entre os partidos no espectro: limite(d) = t<sub>0</sub> ×
+<li><b>Com coordenação</b>, candidatos fortes de partidos próximos não disputam o mesmo distrito. A força de um candidato num distrito é o voto
+que ele teria ali como candidato do partido: voto próprio + legenda + o que herda dos colegas (α = 0,7, γ = 0,5), em fração do distrito. Dois
+candidatos "se atrapalham" quando o mais fraco dos dois passa de um limite que cresce com a distância entre os partidos no espectro: limite(d) = t<sub>0</sub> ×
 (t<sub>2</sub> ÷ t<sub>0</sub>)<sup>d/2</sup>, com t<sub>0</sub> o limite na distância 0 (só um nome muito fraco convive com o partido-irmão) e
-t<sub>2</sub> o limite na distância 2 (só dois nomes realmente fortes se atrapalham). Na intensidade média, t<sub>0</sub> = 1% e t<sub>2</sub> = 4% do
-distrito: Sâmia (PSOL, uns 5% de voto pessoal no distrito em que é mais forte) e Tabata (PSB, uns 7%), a 2,07 pontos, se atrapalham; Tabata e
-Edilene (PSOL, menos de 1%) não. O emparelhamento é feito para todas de uma vez, em ordem do voto esperado do candidato ali como representante do
-partido (voto próprio + legenda + 0,7 × o que herda dos colegas): é a força do partido no distrito que decide quem fica, e quem é barrado vai
-para o melhor distrito em que não atrapalha ninguém. Se quem barrou é um partido muito próximo (até 1 ponto na intensidade média), o partido barrado
+t<sub>2</sub> o limite na distância 2 (só dois nomes realmente fortes se atrapalham). Na intensidade média, t<sub>0</sub> = 3% e t<sub>2</sub> = 8% do
+distrito: Sâmia (PSOL, uns 15% no distrito em que é mais forte) e Tabata (PSB, uns 9%), a 2,07 pontos, se atrapalham; um candidato típico do PT
+(7% a 8%) e um do PSOL, a 1,2 ponto, também; Tabata e Edilene (PSOL, uns 2%) não. O emparelhamento é feito para todas de uma vez, em ordem de
+prioridade: a força do candidato mais o seu voto pessoal (o nome conta duas vezes). Assim o partido forte fica com o distrito, mas um nome forte
+de um parceiro menor ganha o seu reduto: Tabata passa um nome comum do PT onde ela é forte, e Palumbo (Podemos) não passa o PL onde o PL é muito
+maior. Quem é barrado vai para o melhor distrito em que não atrapalha ninguém. Se quem barrou é um partido muito próximo (até 1 ponto na intensidade média), o partido barrado
 sai do distrito; mais longe, pode lançar outro nome, desde que fraco o bastante para não atrapalhar.
 <table class="tabela" style="max-width:560px;margin-top:6px"><thead><tr><th>Intensidade</th><th class="n">limite a 0 ponto</th><th class="n">a 1 ponto</th>
 <th class="n">a 2 pontos</th><th class="n">a 3 pontos</th><th class="n">sai do distrito até</th></tr></thead><tbody>${niveis}</tbody></table></li>
 </ul>
 <p><b>4. Votos no distrito</b>, em quatro etapas.</p>
 <ul>
-<li><b>Acordo (κ).</b> O partido que saiu do distrito passa κ dos seus votos a todos os que concorrem ali, com peso afinidade × tamanho
+<li><b>Acordo (κ).</b> O partido que saiu do distrito passa os seus votos a todos os que concorrem ali, com peso afinidade × tamanho
 (afinidade e<sup>−distância/λ</sup> no espectro; e<sup>−diferença de campo</sup> nos campos). O voto do PSB vai mais para PDT e PT do que para o
-PSOL, e quase nada para o MDB, mesmo que o vizinho do acordo seja do PSOL. O resto, 1 − κ, se espalha na proporção do tamanho.</li>
+PSOL, e quase nada para o MDB. κ é a fração que segue essa regra (padrão 1); o resto, 1 − κ, se espalha na proporção do tamanho.</li>
 <li><b>Herança dos colegas (α e γ).</b> O candidato fica com os votos dele ali e com a legenda. Dos votos que cada colega de agremiação que
 não concorre naquele distrito teve lá, ele herda α × min(1, votos dele ÷ votos do colega)<sup>γ</sup>. Com γ = 0, todo colega passa a mesma
 fração α. Com γ &gt; 0, o eleitor de um puxador segue menos um candidato muito mais fraco que ele: se o candidato do distrito teve um quarto dos
-votos do puxador ali, com γ = 0,5 ele herda metade de α. O que não é herdado vai para as outras agremiações, na proporção do voto delas no distrito.</li>
+votos do puxador ali, com γ = 0,5 ele herda metade de α. O que não é herdado vai para os outros candidatos do distrito com peso afinidade ×
+tamanho, como no acordo: o eleitor do PSOL que não segue o candidato do PSOL ali vai mais para o PT do que para o PL.</li>
 <li><b>Voto útil (β).</b> Quem ficou do 3º lugar para baixo perde votos para quem está à sua frente. Nos <b>campos fixos</b>, quem não lidera o próprio
 campo (esquerda, centro, direita) passa β dos votos ao mais bem colocado do campo. No <b>espectro</b>, a afinidade entre duas agremiações é
 e<sup>−distância/λ</sup> (com λ = 1, quem está a 1 ponto tem afinidade 0,37; a 2 pontos, 0,14): o candidato passa β × a maior afinidade com
@@ -891,9 +963,10 @@ comportamento do eleitor (β, π, λ) vem do desenho "todos concorrem", e da col
 cabeça de chapa se retira, e por isso o β calibrado ali sai perto de zero.</p>
 <table class="tabela" style="max-width:860px"><thead><tr><th>Combinação</th><th class="n">κ</th><th class="n">β</th><th class="n">π</th><th class="n">λ</th>
 <th class="n">Dois primeiros</th><th>Intervalo de 90% (bootstrap por cidade)</th></tr></thead><tbody>${tabCal}</tbody></table>
-<p>κ sai baixo e mal medido: voto para vereador é muito pessoal, e a regra afinidade × tamanho ajusta pior que uma regra em que o voto do partido
+<p>Nas prefeituras, κ sai baixo e mal medido: voto para vereador é muito pessoal, e a regra afinidade × tamanho ajusta pior que uma regra em que o voto do partido
 coligado vai direto para o candidato da coligação (erro médio de 0,059 contra 0,043). Ou seja, nas prefeituras o eleitor segue mais a indicação do
-aliado do que a pura proximidade no espectro. Ao trocar a afinidade nos seletores, β, π, λ e κ voltam aos valores calibrados para ela.</p>
+aliado do que a pura proximidade no espectro. Por isso o padrão do simulador é κ = 1, a regra de afinidade × tamanho escolhida para o acordo; o seletor permite testar valores menores.
+Ao trocar a afinidade nos seletores, β, π e λ voltam aos valores calibrados para ela.</p>
 <p>Ressalva: prefeitura é cargo executivo, com coligação montada antes, e pode concentrar mais que uma eleição de deputado. Em países com distrito de um eleito só e vários partidos, como o Reino Unido,
 a concentração nos dois primeiros costuma ser menor. Os seletores permitem testar o simulador com menos concentração.</p>
 <h2>O espectro</h2>

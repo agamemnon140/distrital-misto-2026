@@ -98,6 +98,10 @@ button.fantasma:hover, button.fantasma.ativo { background: var(--wash); }
 .tabela.sub th { font-size: 11px; vertical-align: bottom; }
 .tabela.sub tr.venc td { font-weight: 600; }
 .tabela.sub .nota { margin-top: 6px; }
+.busca { align-items: center; margin-top: -4px; }
+.busca input { font: inherit; font-size: 14px; color: var(--text-primary); background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 8px; width: 320px; }
+.busca .nota { margin: 14px 0 0; max-width: 640px; }
 .regiao { font-size: 12px; color: var(--text-secondary); max-width: 360px; }
 .regiao b { color: var(--text-primary); font-weight: 500; }
 

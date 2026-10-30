@@ -4,7 +4,8 @@ Notas por partido: config/espectro.json (pesquisa com especialistas, rodada 2022
 na media das suas siglas ponderada pelo voto para deputado federal de 2026 no pais.
 
 Coordenacao: dois candidatos "se atrapalham" num distrito quando o mais fraco dos dois tem voto
-pessoal ali (fracao do distrito) acima de um limite que cresce com a distancia entre os partidos:
+esperado ali (como candidato do partido: proprio + legenda + o que herda dos colegas; fracao do
+distrito) acima de um limite que cresce com a distancia entre os partidos:
     limite(d) = t0 * (t2 / t0) ** (d / 2)
 t0 = limite na distancia 0 (so um nome muito fraco convive com o partido-irmao) e t2 = limite na
 distancia 2 (so se os dois forem realmente fortes). Quem e barrado por um partido a ate `dw` pontos
@@ -20,9 +21,9 @@ import pandas as pd
 from .caminhos import RAIZ, TRAB
 
 # intensidade da coordenacao: (t0, t2, dw)
-# media: Samia (5,2% pessoal) x Tabata (6,6%), a 2,07 pontos, se atrapalham; Tabata x um nome do PT
-# com 1-2% pessoal, nao
-NIVEIS = {"baixa": (0.015, 0.06, 0.5), "media": (0.01, 0.04, 1.0), "alta": (0.007, 0.025, 1.5)}
+# media: Samia (~15% esperado) x Tabata (~9%), a 2,07 pontos, se atrapalham; PT x PSOL tipicos (7-8%,
+# a 1,21) tambem; Edilene (PSOL, ~2%) x Tabata nao
+NIVEIS = {"baixa": (0.04, 0.12, 0.5), "media": (0.03, 0.08, 1.0), "alta": (0.02, 0.05, 1.5)}
 
 
 def limite(d: float, t0: float, t2: float) -> float:

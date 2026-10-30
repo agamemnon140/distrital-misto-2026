@@ -3,7 +3,7 @@
  * Por distrito (entradas [agr, T, X, cand, X_g...] vindas do Python):
  *   voto(a) = T_a - X_a + alfa * X_a(gama)  (X = voto nominal dos colegas que nao concorrem ali;
  *            X(gama) = a parte que segue o candidato, menor quanto mais fraco ele e diante do colega)
- *   o que sai vai para as outras agremiacoes na proporcao de T
+ *   o que sai vai para os outros candidatos por afinidade x tamanho
  *   voto util (beta): quem ficou do 3o lugar para baixo e nao lidera o proprio campo passa beta
  *   dos seus votos ao mais bem colocado do campo
  *   polarizacao (pi): depois, todo mundo do 3o lugar para baixo passa pi do que restou a um dos
@@ -152,9 +152,9 @@
     // com peso afinidade x tamanho (espectro: e^-distancia/lambda; campos: e^-|diferenca de campo|);
     // o resto se espalha na proporcao do tamanho
     const fora = cand.map(c => c === -2);
+    const campoW = agr.map(a => a >= 0 ? p.campoDe[a] : null);
+    const Kt = K || ((i, j) => (campoW[i] && campoW[j]) ? Math.exp(-Math.abs(POS[campoW[i]] - POS[campoW[j]])) : 0);
     if (fora.some(Boolean)) {
-      const campoW = agr.map(a => a >= 0 ? p.campoDe[a] : null);
-      const Kt = K || ((i, j) => (campoW[i] && campoW[j]) ? Math.exp(-Math.abs(POS[campoW[i]] - POS[campoW[j]])) : 0);
       let Tc = 0;
       for (let i = 0; i < n; i++) if (!fora[i]) Tc += T[i];
       const kappa = p.kappa === undefined ? 1 : p.kappa;
@@ -170,18 +170,28 @@
       }
     }
 
-    // (1) heranca dos colegas: o que nao e herdado vai para os outros na proporcao de T
-    let Ttot = 0;
-    for (let i = 0; i < n; i++) Ttot += T[i];
+    // (1) heranca dos colegas: o que nao e herdado vai para os outros candidatos por afinidade x
+    // tamanho (sem afinidade com ninguem -- "outros" --, na proporcao do tamanho)
     const V = T.slice();
-    if (sai.some(x => x > 0)) {
-      // recebe_b = sum_{a != b} sai_a * T_b / (Ttot - T_a)
-      let somaFator = 0;
-      const fator = new Array(n);
-      for (let a = 0; a < n; a++) { fator[a] = Ttot - T[a] > 0 ? sai[a] / (Ttot - T[a]) : 0; somaFator += fator[a]; }
-      for (let b = 0; b < n; b++) V[b] = T[b] - sai[b] + T[b] * (somaFator - fator[b]);
+    const R = new Array(n).fill(0);
+    for (let a = 0; a < n; a++) {
+      if (!(sai[a] > 0)) continue;
+      let soma = 0, somaT = 0;
+      const pesos = T.map((t, b) => {
+        if (b === a || fora[b]) return 0;
+        somaT += t;
+        const w = Kt(a, b) * t;
+        soma += w;
+        return w;
+      });
+      V[a] -= sai[a];
+      for (let b = 0; b < n; b++) {
+        if (b === a || fora[b]) continue;
+        const r = soma > 0 ? sai[a] * pesos[b] / soma : (somaT > 0 ? sai[a] * T[b] / somaT : 0);
+        R[b] += r;
+        V[b] += r;
+      }
     }
-    const R = V.map((v, i) => v - (T[i] - sai[i]));
     for (let i = 0; i < n; i++) V[i] += A[i];
     const Vr = V.slice();
 

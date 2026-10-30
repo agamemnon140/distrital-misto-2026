@@ -13,7 +13,7 @@ const arg = Object.fromEntries(process.argv.slice(2).map(s => s.split("=")));
 const coord = arg.coord || "media";
 const afinidade = arg.afinidade || "espectro";
 const cs = (cal[afinidade] || {}).sem || {}, cc = (cal[afinidade] || {}).com || {};
-const c = { beta: cs.beta, pi: cs.pi, lambda: cs.lambda, kappa: cc.kappa };
+const c = { beta: cs.beta, pi: cs.pi, lambda: cs.lambda, kappa: 1 };
 const p = {
   rateio: arg.rateio || "atual", modelo: arg.modelo || "paralelo", regra: arg.regra || "brasil",
   excedentes: arg.excedentes || "2023", alfa: +(arg.alfa ?? 0.7), gama: +(arg.gama ?? 0.5),
