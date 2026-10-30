@@ -25,6 +25,7 @@ import topojson as tp
 from .caminhos import APURACAO, RAIZ, SAIDA_WEB, TRAB, UFS
 from .candidatos import CAMPO, COR, FED, SIGLA
 from .mapas import ks_da_uf
+from .espectro import LIMIARES, posicoes
 from .matrizes import GAMAS
 from .tijolos import locais_2026
 from .rateio import RATEIOS, populacao, rateios
@@ -39,15 +40,47 @@ NOME_FED = {"FED-PT/PCdoB/PV": ("PT/PCdoB/PV", "13"), "FED-PSOL/REDE": ("PSOL/RE
 
 def agremiacoes() -> list[dict]:
     campos = json.loads((RAIZ / "config" / "campos.json").read_text("utf-8"))
+    pos = posicoes()
     out = []
     for nr, sig in sorted(SIGLA.items()):
         if nr in FED:
             continue
-        out.append({"id": nr, "sigla": sig, "cor": COR[nr], "campo": campos.get(nr, CAMPO[nr]), "partidos": [nr]})
+        out.append({"id": nr, "sigla": sig, "cor": COR[nr], "campo": campos.get(nr, CAMPO[nr]), "partidos": [nr],
+                    "pos": pos.get(nr)})
     for fed, (nome, lider) in NOME_FED.items():
         out.append({"id": fed, "sigla": nome, "cor": COR[lider], "campo": campos.get(fed, CAMPO[lider]),
-                    "partidos": [nr for nr, f in FED.items() if f == fed]})
+                    "partidos": [nr for nr, f in FED.items() if f == fed], "pos": round(pos[fed], 3)})
     return out
+
+
+def mapas_json(variante: dict, k: int, loc_agr: np.ndarray) -> list[dict]:
+    """Distritos de cada mapa de uma variante (sem coordenacao ou com um limiar)."""
+    mapas = []
+    for d in variante[k]["dist"]:
+        Va, esc, own, bloq = d["Va"], d["esc"], d["own"], d["bloq"]
+        distritos = []
+        for j in range(k):
+            T = Va[j]
+            ordem = np.argsort(-T)
+            tot = T.sum()
+            linha, outros = [], np.zeros(3 + len(GAMAS), dtype=np.int64)
+            for pos, a in enumerate(ordem):
+                if T[a] <= 0:
+                    break
+                X = int(d["nom"][j, a] - own[j, a])
+                Xg = [int(x) for x in d["Xg"][:, j, a]] + [int(own[j, a])]
+                if pos < PODA_TOPO or T[a] >= PODA_FRACAO * tot:
+                    # cand = -2: retirou a candidatura por acordo com uma vizinha que concorre ali
+                    linha += [int(loc_agr[a]), int(T[a]), X, -2 if bloq[j, a] else int(esc[j, a])] + Xg
+                else:
+                    outros += [int(T[a]), X] + Xg
+            if outros[0]:
+                linha += [-1, int(outros[0]), int(outros[1]), -1] + [int(x) for x in outros[2:]]
+            distritos.append(linha)
+        mapas.append({"d": distritos, "aptos": [int(x) for x in d["aptos"]],
+                      "pop": [int(x) for x in d["pop"]], "lula": [int(x) for x in d["lula"]],
+                      "flavio": [int(x) for x in d["flavio"]]})
+    return mapas
 
 
 def exporta_uf(uf: str, idx_agr: dict) -> dict:
@@ -55,36 +88,10 @@ def exporta_uf(uf: str, idx_agr: dict) -> dict:
         r = pickle.load(fh)
     ins = r["ins"]
     loc_agr = np.array([idx_agr[a] for a in ins["agrs"]])
-    cand_local_agr = ins["cand_agr"]
-    dist = {}
-    for k, pk in r["por_k"].items():
-        mapas = []
-        for d in pk["dist"]:
-            Va, esc, own = d["Va"], d["esc"], d["own"]
-            # nominal da agremiacao no distrito = soma dos seus candidatos ali (Va inclui legenda)
-            distritos = []
-            for j in range(k):
-                T = Va[j]
-                ordem = np.argsort(-T)
-                tot = T.sum()
-                linha, outros = [], np.zeros(3 + len(GAMAS), dtype=np.int64)
-                for pos, a in enumerate(ordem):
-                    if T[a] <= 0:
-                        break
-                    X = int(d["nom"][j, a] - own[j, a])
-                    Xg = [int(x) for x in d["Xg"][:, j, a]] + [int(own[j, a])]
-                    if pos < PODA_TOPO or T[a] >= PODA_FRACAO * tot:
-                        linha += [int(loc_agr[a]), int(T[a]), X, int(esc[j, a])] + Xg
-                    else:
-                        outros += [int(T[a]), X] + Xg
-                if outros[0]:
-                    linha += [-1, int(outros[0]), int(outros[1]), -1] + [int(x) for x in outros[2:]]
-                distritos.append(linha)
-            mapas.append({"d": distritos, "aptos": [int(x) for x in d["aptos"]],
-                          "pop": [int(x) for x in d["pop"]], "lula": [int(x) for x in d["lula"]],
-                          "flavio": [int(x) for x in d["flavio"]]})
-        dist[k] = mapas
-    return {"dist": dist, "mapas": {k: ["".join(B64[x] for x in m) for m in pk["mapas"]] for k, pk in r["por_k"].items()},
+    dist = {k: mapas_json(r["por_k"], k, loc_agr) for k in r["por_k"]}
+    coord = {L: {k: mapas_json(v, k, loc_agr) for k in v} for L, v in r["coord"].items()}
+    return {"dist": dist, "coord": coord,
+            "mapas": {k: ["".join(B64[x] for x in m) for m in pk["mapas"]] for k, pk in r["por_k"].items()},
             "ins": ins}
 
 
@@ -153,7 +160,7 @@ def main() -> None:
     rt = rateios()
     base = {"agrs": ags,
             "partidos": {nr: {"sigla": s, "cor": COR[nr]} for nr, s in SIGLA.items()},
-            "rateios": rt, "nomes_rateio": RATEIOS, "gamas": list(GAMAS), "pop": populacao(), "ks": {}, "uf": {}}
+            "rateios": rt, "nomes_rateio": RATEIOS, "gamas": list(GAMAS), "limiares": list(LIMIARES), "pop": populacao(), "ks": {}, "uf": {}}
     for d in ("dist", "mapas", "geo"):
         (SAIDA_WEB / d).mkdir(parents=True, exist_ok=True)
     for uf in ufs:
@@ -171,6 +178,10 @@ def main() -> None:
                       zip(c["nr"], c["nome"], c["partido"], c["agr"], c["votos"], c["eleito_real"])],
         }
         (SAIDA_WEB / "dist" / f"{uf}.json").write_text(json.dumps(e["dist"], separators=(",", ":")), "utf-8")
+        for L, v in e["coord"].items():
+            pasta = SAIDA_WEB / f"dist_c{L:.1f}"
+            pasta.mkdir(exist_ok=True)
+            (pasta / f"{uf}.json").write_text(json.dumps(v, separators=(",", ":")), "utf-8")
         topo, tij = geo_uf(uf, ins)
         (SAIDA_WEB / "geo" / f"{uf}.json").write_text(json.dumps(topo, separators=(",", ":")), "utf-8")
         (SAIDA_WEB / "mapas" / f"{uf}.json").write_text(json.dumps({"mapas": e["mapas"], "tij": tij},

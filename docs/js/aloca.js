@@ -8,6 +8,8 @@
  *   dos seus votos ao mais bem colocado do campo
  *   polarizacao (pi): depois, todo mundo do 3o lugar para baixo passa pi do que restou a um dos
  *   dois primeiros, o de campo mais proximo (esquerda-centro-direita); empate divide na proporcao
+ *   afinidade: por campos fixos ou pelo espectro 0-10 (K = exp(-distancia/lambda))
+ *   coordenacao: vizinhas no espectro dividem os distritos (Python); quem se retirou passa kappa
  *   vence a maior votacao (maioria simples)
  * Lista (por estado): regra brasileira 2026 (QE/QP, 80%/20%, sobras + 3a fase do STF) ou D'Hondt.
  * Modelos: paralelo (distritos + lista independentes), compensatorio (cota total pela lista;
@@ -114,9 +116,20 @@
     return x(g.length - 1);
   }
 
-  /* p: {alfa, beta, gama, pi, campoDe, gamas}. Devolve tambem a decomposicao do voto de cada
-   * entrada: P (nominal proprio ali), L (legenda), H (herdado dos colegas), R (recebido do que os
-   * outros nao herdaram), U (saldo do voto util e da polarizacao); V = P + L + H + R + U */
+  // afinidade no modo espectro: K(i, j) = exp(-|x_i - x_j| / lambda); sem posicao, 0
+  function afinidadeDe(p, agr) {
+    if (p.afinidade !== "espectro") return null;
+    const x = agr.map(a => (a >= 0 && p.pos && p.pos[a] != null) ? p.pos[a] : null);
+    return (i, j) => (x[i] === null || x[j] === null) ? 0 : Math.exp(-Math.abs(x[i] - x[j]) / p.lambda);
+  }
+
+  /* p: {alfa, beta, gama, pi, campoDe, gamas, afinidade ("campos" | "espectro"), pos, lambda,
+   *     kappa, limiar, posCoord}. Etapas: (0) acordo: quem retirou a candidatura (cand = -2) passa
+   * kappa dos votos as vizinhas que concorrem ali (a ate `limiar` pontos), o resto se espalha;
+   * (1) heranca dos colegas (alfa, gama); (2) voto util (beta); (3) polarizacao (pi).
+   * Devolve tambem a decomposicao do voto de cada entrada: P (nominal proprio ali), L (legenda),
+   * H (herdado dos colegas), R (recebido do que os outros nao herdaram), A (recebido por acordo),
+   * U (saldo do voto util e da polarizacao); V = P + L + H + R + A + U. Tw = voto de quem se retirou. */
   function distrito(flat, p) {
     const gamas = p.gamas || [];
     const passo = 5 + gamas.length;
@@ -124,7 +137,7 @@
     if (!Number.isInteger(n)) throw new Error(`distrito: ${flat.length} valores nao fecham com passo ${passo} (faltou p.gamas?)`);
     const agr = new Array(n), T = new Array(n), cand = new Array(n), sai = new Array(n);
     const P = new Array(n), L = new Array(n), H = new Array(n);
-    let Ttot = 0;
+    const A = new Array(n).fill(0), Tw = new Array(n).fill(0);
     for (let i = 0; i < n; i++) {
       const o = passo * i;
       agr[i] = flat[o]; T[i] = flat[o + 1]; cand[i] = flat[o + 3];
@@ -132,8 +145,36 @@
       L[i] = T[i] - flat[o + 2] - P[i];
       H[i] = p.alfa * herdado(flat, o, p.gama || 0, gamas);
       sai[i] = flat[o + 2] - H[i];
-      Ttot += T[i];
     }
+    const K = afinidadeDe(p, agr);
+
+    // (0) acordo entre vizinhas
+    const fora = cand.map(c => c === -2);
+    if (fora.some(Boolean)) {
+      const xc = agr.map(a => (a >= 0 && p.posCoord && p.posCoord[a] != null) ? p.posCoord[a] : null);
+      let Tc = 0;
+      for (let i = 0; i < n; i++) if (!fora[i]) Tc += T[i];
+      const kappa = p.kappa === undefined ? 1 : p.kappa;
+      for (let w = 0; w < n; w++) {
+        if (!fora[w]) continue;
+        const m = T[w];
+        const aliados = [];
+        for (let i = 0; i < n; i++) {
+          if (fora[i] || xc[i] === null || xc[w] === null) continue;
+          if (Math.abs(xc[i] - xc[w]) <= p.limiar + 1e-9) aliados.push(i);
+        }
+        const pesos = aliados.map(i => (K ? K(w, i) : 1) * T[i]);
+        const soma = pesos.reduce((s, x) => s + x, 0);
+        const segue = soma > 0 ? kappa * m : 0;
+        aliados.forEach((i, q) => { A[i] += segue * pesos[q] / soma; });
+        if (Tc > 0) for (let i = 0; i < n; i++) if (!fora[i]) A[i] += (m - segue) * T[i] / Tc;
+        Tw[w] = m; T[w] = 0; P[w] = 0; L[w] = 0; H[w] = 0; sai[w] = 0;
+      }
+    }
+
+    // (1) heranca dos colegas: o que nao e herdado vai para os outros na proporcao de T
+    let Ttot = 0;
+    for (let i = 0; i < n; i++) Ttot += T[i];
     const V = T.slice();
     if (sai.some(x => x > 0)) {
       // recebe_b = sum_{a != b} sai_a * T_b / (Ttot - T_a)
@@ -143,21 +184,38 @@
       for (let b = 0; b < n; b++) V[b] = T[b] - sai[b] + T[b] * (somaFator - fator[b]);
     }
     const R = V.map((v, i) => v - (T[i] - sai[i]));
+    for (let i = 0; i < n; i++) V[i] += A[i];
     const Vr = V.slice();
+
+    // (2) voto util
     const campo = agr.map(a => a >= 0 ? p.campoDe[a] : null);
     if (p.beta > 0 && n > 2) {
       const ordem = [...V.keys()].sort((a, b) => V[b] - V[a]);
-      const lider = {};
-      for (const i of ordem) if (campo[i] && !(campo[i] in lider)) lider[campo[i]] = i;
       const V0 = V.slice();
-      for (let pos = 2; pos < ordem.length; pos++) {
-        const i = ordem[pos], c = campo[i];
-        if (!c || lider[c] === i) continue;
-        const m = p.beta * V0[i];
-        V[i] -= m;
-        V[lider[c]] += m;
+      if (!K) {
+        const lider = {};
+        for (const i of ordem) if (campo[i] && !(campo[i] in lider)) lider[campo[i]] = i;
+        for (let pos = 2; pos < ordem.length; pos++) {
+          const i = ordem[pos], c = campo[i];
+          if (!c || lider[c] === i) continue;
+          const m = p.beta * V0[i];
+          V[i] -= m;
+          V[lider[c]] += m;
+        }
+      } else {
+        for (let pos = 2; pos < ordem.length; pos++) {
+          const i = ordem[pos], acima = ordem.slice(0, pos);
+          const ks = acima.map(j => K(i, j));
+          const w = acima.map((j, q) => ks[q] * V0[j]);
+          const kmax = Math.max(...ks), ws = w.reduce((s, x) => s + x, 0);
+          if (kmax <= 0 || ws <= 0) continue;
+          const m = p.beta * V0[i] * kmax;
+          V[i] -= m;
+          acima.forEach((j, q) => { V[j] += m * w[q] / ws; });
+        }
       }
     }
+    // (3) polarizacao
     if (p.pi > 0 && n > 2) {
       const ordem = [...V.keys()].sort((a, b) => V[b] - V[a]);
       const a = ordem[0], b = ordem[1];
@@ -166,10 +224,16 @@
       for (let pos = 2; pos < ordem.length; pos++) {
         const i = ordem[pos], m = p.pi * V1[i];
         V[i] -= m;
-        const da = dist(i, a), db = dist(i, b);
-        if (da < db) V[a] += m;
-        else if (db < da) V[b] += m;
-        else { V[a] += m * V1[a] / (V1[a] + V1[b]); V[b] += m * V1[b] / (V1[a] + V1[b]); }
+        let fa;
+        if (!K) {
+          const da = dist(i, a), db = dist(i, b);
+          fa = da < db ? 1 : db < da ? 0 : V1[a] / (V1[a] + V1[b]);
+        } else {
+          const ka = K(i, a), kb = K(i, b);
+          fa = ka + kb > 0 ? ka / (ka + kb) : V1[a] / (V1[a] + V1[b]);
+        }
+        V[a] += m * fa;
+        V[b] += m * (1 - fa);
       }
     }
     let venc = 0;
@@ -178,12 +242,13 @@
     for (let i = 0; i < n; i++) if (i !== venc && V[i] > V[segundo]) segundo = i;
     const tot = V.reduce((s, x) => s + x, 0);
     const U = V.map((v, i) => v - Vr[i]);
-    return { agr, V, cand, venc, segundo, tot, P, L, H, R, U };
+    return { agr, V, cand, venc, segundo, tot, P, L, H, R, A, U, Tw };
   }
 
   // ------------------------------------------------------------------ estado
   /* uf: {votos_agr, cands:[[nr,nome,partido,agr,votos,eleitoReal]]}; mapa: {d:[flat...]};
-   * p: {S, modelo, regra, alfa, beta, gama, pi, excedentes, campoDe, agrId, gamas} */
+   * p: {S, modelo, regra, alfa, beta, gama, pi, excedentes, campoDe, agrId, gamas, afinidade, pos,
+   *     lambda, kappa, limiar, posCoord} */
   function simulaUF(uf, mapa, p) {
     const regra = REGRAS[p.regra];
     const cands = uf.cands.map((c, i) => ({ i, nr: c[0], agr: c[3], v: c[4] }));
@@ -279,6 +344,8 @@
         const r = simulaUF(base.uf[uf], dist[uf][k][m], {
           S: base.rateios[p.rateio][uf], modelo: p.modelo, regra: p.regra, alfa: p.alfa, beta: p.beta,
           gama: p.gama, pi: p.pi, excedentes: p.excedentes, campoDe: p.campoDe, agrId, gamas: base.gamas,
+          afinidade: p.afinidade, pos: p.pos, lambda: p.lambda, kappa: p.kappa, limiar: p.limiar,
+          posCoord: base.agrs.map(a => a.pos),
         });
         const cs = base.uf[uf].cands;
         const conta = (i, tipo) => {
