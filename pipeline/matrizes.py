@@ -8,9 +8,11 @@ Por UF e k (numero de distritos) e para cada um dos N_MAPAS mapas:
     por isso fica pronto aqui;
   - com coordenacao (um nivel de espectro.NIVEIS): o emparelhamento e um so, para todas, em ordem
     decrescente do voto esperado do candidato no distrito como representante do partido (proprio
-    + legenda + ALFA x o que herda dos colegas com GAMA): a forca do partido decide quem fica. Um
-    par so entra se o candidato nao "atrapalha" ninguem ja posto ali: atrapalha quando o voto
-    PESSOAL do mais fraco dos dois (fracao do distrito) passa de espectro.limite(distancia). Barrado por partido a ate dw pontos, o partido se retira do
+    + legenda + ALFA x o que herda dos colegas com GAMA), em fracao do distrito. A prioridade e essa
+    forca mais o voto pessoal do candidato ali (o nome conta duas vezes): o partido forte fica com o
+    distrito, mas um nome forte de um parceiro menor ganha o seu reduto (Tabata passa um nome comum do
+    PT onde ela e forte; Palumbo nao passa o PL no centro de SP). Um par so entra se o candidato nao "atrapalha" ninguem ja posto ali: atrapalha quando
+    a forca do mais fraco dos dois passa de espectro.limite(distancia). Barrado por partido a ate dw pontos, o partido se retira do
     distrito (bloq); mais longe, pode lancar um nome fraco. Assim Samia e Tabata nao disputam o
     mesmo distrito, mas Tabata e um nome fraco do PT podem;
   - para cada gama da grade GAMAS, quanto do voto dos colegas (que nao concorrem ali) o candidato
@@ -182,10 +184,10 @@ def forca_esperada(Vc: np.ndarray, Va: np.ndarray, nom: np.ndarray, cand_agr: np
     return (Vc + leg[:, cand_agr] + ALFA_ACORDO * X) / np.maximum(1, Va.sum(1, keepdims=True))
 
 
-def emparelha_coord(Vc: np.ndarray, forca: np.ndarray, pessoal: np.ndarray, cand_agr: np.ndarray,
+def emparelha_coord(Vc: np.ndarray, forca: np.ndarray, tot: np.ndarray, cand_agr: np.ndarray,
                     x: np.ndarray, nivel: tuple) -> tuple[np.ndarray, np.ndarray]:
-    """Como emparelha, com coordenacao. forca: ordem de prioridade; pessoal: voto proprio / distrito,
-    usado no teste de conflito. x: posicao de cada agremiacao (nan = sem nota, nunca conflita).
+    """Como emparelha, com coordenacao. forca: voto esperado / distrito (teste de conflito);
+    prioridade = forca + voto pessoal / distrito. x: posicao de cada agremiacao (nan = nunca conflita).
     Devolve (escolhido[k, n_agr], bloq[k, n_agr])."""
     t0, t2, dw = nivel
     k, n_agr = Vc.shape[0], len(x)
@@ -193,21 +195,22 @@ def emparelha_coord(Vc: np.ndarray, forca: np.ndarray, pessoal: np.ndarray, cand
     bloq = np.zeros((k, n_agr), dtype=bool)
     usado = np.zeros(Vc.shape[1], dtype=bool)
     f = np.where(Vc > 0, forca, -1.0)
-    ordem = np.argsort(-f, axis=None, kind="stable")
+    prio = np.where(f >= 0, f + Vc / np.maximum(1, tot), -1.0)
+    ordem = np.argsort(-prio, axis=None, kind="stable")
     for flat in ordem:
         d, c = divmod(int(flat), Vc.shape[1])
-        if f[d, c] < 0:
+        if prio[d, c] < 0:
             break
         a = cand_agr[c]
         if usado[c] or escolhido[d, a] >= 0 or bloq[d, a]:
             continue
-        if pessoal[d, c] >= t0 and not np.isnan(x[a]):
+        if f[d, c] >= t0 and not np.isnan(x[a]):
             perto = np.inf
             for b in np.flatnonzero(escolhido[d] >= 0):
                 if np.isnan(x[b]):
                     continue
                 dist = abs(x[a] - x[b])
-                if min(pessoal[d, c], pessoal[d, escolhido[d, b]]) >= limite(dist, t0, t2):
+                if min(f[d, c], f[d, escolhido[d, b]]) >= limite(dist, t0, t2):
                     perto = min(perto, dist)
             if perto < np.inf:
                 if perto <= dw:
@@ -235,8 +238,7 @@ def processa(uf: str, k: int, ins: dict, nivel: tuple | None = None, x: np.ndarr
             esc, bloq = emparelha(Vc, ins["cand_agr"], n_agr), np.zeros((k, n_agr), dtype=bool)
         else:
             forca = forca_esperada(Vc, Va, np.asarray(Vc @ G), ins["cand_agr"])
-            pessoal = Vc / np.maximum(1, Va.sum(1, keepdims=True))
-            esc, bloq = emparelha_coord(Vc, forca, pessoal, ins["cand_agr"], x, nivel)
+            esc, bloq = emparelha_coord(Vc, forca, Va.sum(1, keepdims=True), ins["cand_agr"], x, nivel)
         own = np.where(esc >= 0, np.take_along_axis(Vc, np.maximum(esc, 0), axis=1), 0)
         own_c = own[:, ins["cand_agr"]]                                  # proprio do escolhido da agremiacao
         escolhido = esc[:, ins["cand_agr"]] == np.arange(len(ins["cand_agr"]))[None, :]
