@@ -1,0 +1,165 @@
+{
+ "amostra": {
+  "de": 60000,
+  "ate": 170000,
+  "cidades": 283,
+  "candidatos": 4.2
+ },
+ "top2_observado": 0.88,
+ "top2_previsto": 0.88,
+ "por_faixa": [
+  {
+   "de": 0,
+   "ate": 10000,
+   "cidades": 2936,
+   "top2": 0.966,
+   "candidatos": 2.3
+  },
+  {
+   "de": 10000,
+   "ate": 30000,
+   "cidades": 1778,
+   "top2": 0.939,
+   "candidatos": 2.8
+  },
+  {
+   "de": 30000,
+   "ate": 60000,
+   "cidades": 436,
+   "top2": 0.923,
+   "candidatos": 3.3
+  },
+  {
+   "de": 60000,
+   "ate": 100000,
+   "cidades": 192,
+   "top2": 0.884,
+   "candidatos": 4.0
+  },
+  {
+   "de": 100000,
+   "ate": 170000,
+   "cidades": 91,
+   "top2": 0.873,
+   "candidatos": 4.5
+  }
+ ],
+ "curva": [
+  {
+   "beta": 0.0,
+   "pi": 0.8,
+   "erro_campo": 0.199
+  },
+  {
+   "beta": 0.05,
+   "pi": 0.8,
+   "erro_campo": 0.2008
+  },
+  {
+   "beta": 0.1,
+   "pi": 0.8,
+   "erro_campo": 0.2025
+  },
+  {
+   "beta": 0.15,
+   "pi": 0.8,
+   "erro_campo": 0.2085
+  },
+  {
+   "beta": 0.2,
+   "pi": 0.8,
+   "erro_campo": 0.2051
+  },
+  {
+   "beta": 0.25,
+   "pi": 0.8,
+   "erro_campo": 0.2054
+  },
+  {
+   "beta": 0.3,
+   "pi": 0.75,
+   "erro_campo": 0.1975
+  },
+  {
+   "beta": 0.35,
+   "pi": 0.75,
+   "erro_campo": 0.1955
+  },
+  {
+   "beta": 0.4,
+   "pi": 0.75,
+   "erro_campo": 0.1945
+  },
+  {
+   "beta": 0.45,
+   "pi": 0.75,
+   "erro_campo": 0.1957
+  },
+  {
+   "beta": 0.5,
+   "pi": 0.7,
+   "erro_campo": 0.1928
+  },
+  {
+   "beta": 0.55,
+   "pi": 0.7,
+   "erro_campo": 0.1928
+  },
+  {
+   "beta": 0.6,
+   "pi": 0.7,
+   "erro_campo": 0.1931
+  },
+  {
+   "beta": 0.65,
+   "pi": 0.65,
+   "erro_campo": 0.1894
+  },
+  {
+   "beta": 0.7,
+   "pi": 0.65,
+   "erro_campo": 0.1894
+  },
+  {
+   "beta": 0.75,
+   "pi": 0.6,
+   "erro_campo": 0.1872
+  },
+  {
+   "beta": 0.8,
+   "pi": 0.6,
+   "erro_campo": 0.1881
+  },
+  {
+   "beta": 0.85,
+   "pi": 0.55,
+   "erro_campo": 0.1857
+  },
+  {
+   "beta": 0.9,
+   "pi": 0.5,
+   "erro_campo": 0.1836
+  },
+  {
+   "beta": 0.95,
+   "pi": 0.45,
+   "erro_campo": 0.1818
+  },
+  {
+   "beta": 1.0,
+   "pi": 0.4,
+   "erro_campo": 0.1802
+  }
+ ],
+ "top2_sem_ajuste": 0.34,
+ "beta_padrao": 1.0,
+ "pi_padrao": 0.4,
+ "ic90_beta": [
+  0.0,
+  1.0
+ ],
+ "ic90_pi": [
+  0.35,
+  0.8
+ ]
+}

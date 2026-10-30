@@ -95,12 +95,14 @@ def locais_2026() -> pd.DataFrame:
                 continue
             d = pd.read_csv(z.open(n), sep=";", encoding="latin-1", decimal=",",
                             usecols=["NR_TURNO", "SG_UF", "CD_MUNICIPIO", "NR_ZONA", "NR_LOCAL_VOTACAO",
-                                     "NR_LATITUDE", "NR_LONGITUDE", "QT_ELEITOR_SECAO"])
+                                     "NR_LATITUDE", "NR_LONGITUDE", "QT_ELEITOR_SECAO", "NM_BAIRRO"])
             partes.append(d[d["NR_TURNO"] == 1])
         d = pd.concat(partes)
-        d.columns = ["turno", "uf", "mun", "zona", "local", "lat", "lon", "aptos"]
+        d = d.rename(columns={"NR_TURNO": "turno", "SG_UF": "uf", "CD_MUNICIPIO": "mun", "NR_ZONA": "zona",
+                              "NR_LOCAL_VOTACAO": "local", "NR_LATITUDE": "lat", "NR_LONGITUDE": "lon",
+                              "QT_ELEITOR_SECAO": "aptos", "NM_BAIRRO": "bairro"})
         _LOCAIS = (d.groupby(["uf", "mun", "zona", "local"], as_index=False)
-                   .agg(lat=("lat", "first"), lon=("lon", "first"), aptos=("aptos", "sum")))
+                   .agg(lat=("lat", "first"), lon=("lon", "first"), aptos=("aptos", "sum"), bairro=("bairro", "first")))
     return _LOCAIS
 
 

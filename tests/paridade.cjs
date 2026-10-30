@@ -28,9 +28,9 @@ const dist = {};
 for (const uf of Object.keys(base.uf)) dist[uf] = JSON.parse(fs.readFileSync(path.join(D, "dist", uf + ".json"), "utf8"));
 const campoDe = base.agrs.map(a => a.campo);
 for (const rateio of base.nomes_rateio) {
-  for (const modelo of ["paralelo", "compensatorio"]) {
-    for (const exc of modelo === "paralelo" ? ["2023"] : ["2023", "antiga"]) {
-      const r = A.simulaPais(base, dist, { rateio, modelo, regra: "brasil", alfa: 0.7, beta: 0.3, excedentes: exc, campoDe });
+  for (const modelo of ["paralelo", "compensatorio", "lista"]) {
+    for (const exc of modelo === "compensatorio" ? ["2023", "antiga"] : ["2023"]) {
+      const r = A.simulaPais(base, dist, { rateio, modelo, regra: "brasil", alfa: 0.7, beta: 1, gama: 0.5, pi: 0.4, excedentes: exc, campoDe });
       for (const [m, x] of r.porMapa.entries()) {
         if (exc === "2023") ok(x.total === 513, `${rateio}/${modelo}/${exc} mapa ${m}: ${x.total} cadeiras`);
         else ok(x.total >= 513, `${rateio}/${modelo}/${exc} mapa ${m}: Casa menor que 513`);
@@ -39,10 +39,28 @@ for (const rateio of base.nomes_rateio) {
   }
 }
 
-// 3) caso-limite: alfa = 1, beta = 0, compensatorio 2023 -> total por agremiacao = proporcional
-const r = A.simulaPais(base, dist, { rateio: "atual", modelo: "compensatorio", regra: "brasil", alfa: 1, beta: 0, excedentes: "2023", campoDe });
+// 3) caso-limite: alfa = 1, gama = beta = pi = 0, compensatorio 2023 -> total por agremiacao = proporcional
+const r = A.simulaPais(base, dist, { rateio: "atual", modelo: "compensatorio", regra: "brasil", alfa: 1, beta: 0, gama: 0, pi: 0, excedentes: "2023", campoDe });
 const real = {};
 for (const u of Object.values(base.uf)) for (const c of u.cands) if (c[5]) real[c[3]] = (real[c[3]] || 0) + 1;
 for (const x of r.porMapa) for (const a in real) ok((x.agr[a] || 0) === real[a], `compensatorio != proporcional para ${agrId[a]}`);
+
+// 4) so lista fechada: nao depende do mapa nem dos parametros do distrito
+const l1 = A.simulaPais(base, dist, { rateio: "atual", modelo: "lista", regra: "brasil", alfa: 0.7, beta: 1, gama: 0.5, pi: 0.4, excedentes: "2023", campoDe });
+const l2 = A.simulaPais(base, dist, { rateio: "atual", modelo: "lista", regra: "brasil", alfa: 1, beta: 0, gama: 0, pi: 0, excedentes: "2023", campoDe });
+const chave = (x) => JSON.stringify(Object.entries(x.agr).sort());
+ok(l1.porMapa.every(x => chave(x) === chave(l1.porMapa[0]) && x.distritais === 0), "lista fechada varia entre mapas");
+ok(chave(l1.porMapa[0]) === chave(l2.porMapa[0]), "lista fechada depende de alfa/beta/gama/pi");
+
+// 5) conservacao no distrito: as tres etapas so movem votos
+for (const uf of ["SP", "AC", "MG"]) {
+  const k = base.ks[uf].atual;
+  for (const flat of dist[uf][k][0].d) {
+    const passo = 4 + base.gamas.length;
+    let T = 0; for (let i = 1; i < flat.length; i += passo) T += flat[i];
+    const d = A.distrito(flat, { alfa: 0.7, beta: 1, gama: 0.5, pi: 0.4, campoDe, gamas: base.gamas });
+    ok(Math.abs(d.tot - T) < 1e-6 * T, `${uf}: distrito nao conserva votos`);
+  }
+}
 console.log(falhas ? `${falhas} falha(s)` : "tudo certo");
 process.exit(falhas ? 1 : 0);

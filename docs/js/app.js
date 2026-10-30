@@ -34,8 +34,11 @@
     BA: ["Grande Salvador", ["Salvador", "Lauro De Freitas", "Camaçari", "Simões Filho", "Candeias", "Dias D'ávila", "Madre De Deus"]],
   };
 
+  const GAMA_PADRAO = 0.5;
+  const MODELOS = ["paralelo", "compensatorio", "lista"];
+  const NOME_MODELO = { paralelo: "paralelo", compensatorio: "compensatório", lista: "só lista fechada" };
   const S = {
-    base: null, betaInfo: null, dist: {}, geo: {}, mapas: {},
+    base: null, cal: null, dist: {}, geo: {}, mapas: {},
     p: null, padrao: null, campoDe: [], resultado: null, aba: "resultado",
     ufRes: "SP", mapaRes: null, ufMap: "SP", mapa: 0, camada: "vencedor", cacheUF: {},
   };
@@ -45,10 +48,11 @@
 
   // ------------------------------------------------------------------ dados
   async function carrega() {
-    const [base, beta] = await Promise.all([d3.json("dados/base.json"), d3.json("dados/beta.json")]);
-    S.base = base; S.betaInfo = beta;
+    const [base, cal] = await Promise.all([d3.json("dados/base.json"), d3.json("dados/calibra.json")]);
+    S.base = base; S.cal = cal;
     S.campoDe = base.agrs.map(a => a.campo);
-    S.padrao = { rateio: "atual", modelo: "paralelo", regra: "brasil", alfa: 0.7, beta: beta.beta_padrao, excedentes: "2023" };
+    S.padrao = { rateio: "atual", modelo: "paralelo", regra: "brasil", alfa: 0.7, gama: GAMA_PADRAO,
+                 beta: cal.beta_padrao, pi: cal.pi_padrao, excedentes: "2023" };
     S.p = { ...S.padrao };
     lerHash();
     const ufs = Object.keys(base.uf);
@@ -78,7 +82,7 @@
 
   function simula() {
     const modelos = {};
-    for (const modelo of ["paralelo", "compensatorio"]) modelos[modelo] = Aloca.simulaPais(S.base, S.dist, params({ modelo }));
+    for (const modelo of MODELOS) modelos[modelo] = Aloca.simulaPais(S.base, S.dist, params({ modelo }));
     const sel = modelos[S.p.modelo];
     // mapa representativo: o mais perto da mediana do modelo escolhido
     const partidos = new Set();
@@ -100,7 +104,7 @@
   // ------------------------------------------------------------------ hash (estado compartilhavel)
   function escreveHash() {
     const p = S.p;
-    const h = `m=${p.modelo}&r=${p.rateio}&l=${p.regra}&a=${p.alfa}&b=${p.beta}&e=${p.excedentes}&t=${S.aba}&uf=${S.ufMap}&n=${S.mapa}&c=${S.camada}${zoomAtual ? "&z=" + encodeURIComponent(zoomAtual) : ""}`;
+    const h = `m=${p.modelo}&r=${p.rateio}&l=${p.regra}&a=${p.alfa}&g=${p.gama}&b=${p.beta}&p=${p.pi}&e=${p.excedentes}&t=${S.aba}&uf=${S.ufMap}&n=${S.mapa}&c=${S.camada}${zoomAtual ? "&z=" + encodeURIComponent(zoomAtual) : ""}`;
     history.replaceState(null, "", "#" + h);
   }
   function lerHash() {
@@ -109,6 +113,7 @@
     const set = (campo, v) => { if (v !== undefined && v !== "" && !Number.isNaN(v)) S.p[campo] = v; };
     set("modelo", g("m", String)); set("rateio", g("r", String)); set("regra", g("l", String));
     set("alfa", g("a", Number)); set("beta", g("b", Number)); set("excedentes", g("e", String));
+    set("gama", g("g", Number)); set("pi", g("p", Number));
     S.aba = g("t", String) || S.aba; S.ufMap = g("uf", String) || S.ufMap;
     S.mapa = g("n", Number) || 0; S.camada = g("c", String) || S.camada;
     zoomPendente = g("z", String) || null;
@@ -117,9 +122,11 @@
   // ------------------------------------------------------------------ filtros
   function sincronizaFiltros() {
     $("#f-modelo").value = S.p.modelo; $("#f-rateio").value = S.p.rateio; $("#f-regra").value = S.p.regra;
-    $("#f-exc").value = S.p.excedentes; $("#f-alfa").value = S.p.alfa; $("#f-beta").value = S.p.beta;
-    $("#o-alfa").textContent = S.p.alfa.toFixed(2).replace(".", ",");
-    $("#o-beta").textContent = S.p.beta.toFixed(2).replace(".", ",");
+    $("#f-exc").value = S.p.excedentes;
+    for (const c of ["alfa", "gama", "beta", "pi"]) {
+      $("#f-" + c).value = S.p[c];
+      $("#o-" + c).textContent = S.p[c].toFixed(2).replace(".", ",");
+    }
     $("#l-exc").classList.toggle("desligado", S.p.modelo !== "compensatorio");
     $("#f-exc").disabled = S.p.modelo !== "compensatorio";
   }
@@ -135,8 +142,7 @@
     $("#f-rateio").onchange = e => { S.mapaRes = null; mudou("rateio", e.target.value, true); };
     $("#f-regra").onchange = e => mudou("regra", e.target.value, true);
     $("#f-exc").onchange = e => mudou("excedentes", e.target.value, true);
-    $("#f-alfa").oninput = e => mudou("alfa", +e.target.value);
-    $("#f-beta").oninput = e => mudou("beta", +e.target.value);
+    for (const c of ["alfa", "gama", "beta", "pi"]) $("#f-" + c).oninput = e => mudou(c, +e.target.value);
     $("#f-reset").onclick = () => { S.p = { ...S.padrao }; S.campoDe = S.base.agrs.map(a => a.campo); sincronizaFiltros(); simula(); desenha(); };
     document.querySelectorAll(".abas button").forEach(b => b.onclick = () => trocaAba(b.dataset.aba));
   }
@@ -175,11 +181,13 @@
       .filter((p, i, a) => a.indexOf(p) === i).map(p => {
         const par = R.modelos.paralelo.porMapa.map(x => R.tot(x, p));
         const comp = R.modelos.compensatorio.porMapa.map(x => R.tot(x, p));
+        const lst = R.modelos.lista.porMapa.map(x => R.tot(x, p));
         const s = sel.porMapa.map(x => R.tot(x, p));
-        const dis = sel.porMapa.map(x => x.partido[p] ? x.partido[p].d : 0);
-        return { p, par: med(par), comp: med(comp), lo: Aloca.quantil(s, .1), hi: Aloca.quantil(s, .9),
+        // distritos ganhos: no modelo so de lista, mostra quantos o partido ganharia no paralelo
+        const dis = (S.p.modelo === "lista" ? R.modelos.paralelo : sel).porMapa.map(x => x.partido[p] ? x.partido[p].d : 0);
+        return { p, par: med(par), comp: med(comp), lst: med(lst), lo: Aloca.quantil(s, .1), hi: Aloca.quantil(s, .9),
                  sel: med(s), real: real[p] || 0, dis: med(dis) };
-      }).filter(l => l.par || l.comp || l.real).sort((a, b) => (b.sel - a.sel) || (b.real - a.real));
+      }).filter(l => l.par || l.comp || l.lst || l.real).sort((a, b) => (b.sel - a.sel) || (b.real - a.real));
 
     // tiles
     const casa = med(sel.porMapa.map(x => x.total));
@@ -188,35 +196,43 @@
     const sem = med(sel.porMapa.map(x => x.semEleito));
     const k = Object.values(base.ks).reduce((s, x) => s + x[S.p.rateio], 0);
     const topDis = linhas.slice().sort((a, b) => b.dis - a.dis)[0];
-    const nomeModelo = S.p.modelo === "paralelo" ? "paralelo" : "compensatório";
+    const nomeModelo = NOME_MODELO[S.p.modelo];
+    const top2 = med(R.modelos.paralelo.porMapa.map(x => x.top2));
+    const lista = S.p.modelo === "lista";
     $("#tiles").innerHTML = [
-      tile(`Maior bancada (${nomeModelo})`, `${sigla(top.p)} ${fmtMed(top.sel)}`, `eleitos de verdade: ${top.real} · faixa ${fmtMed(top.lo)}–${fmtMed(top.hi)}`),
-      tile("Distritos", `${k}`, `${sigla(topDis.p)} vence ${fmtMed(topDis.dis)} (${pct(topDis.dis / k, 0)})`),
+      tile(`Maior bancada (${nomeModelo})`, `${sigla(top.p)} ${fmtMed(top.sel)}`,
+        `eleitos de verdade: ${top.real}` + (lista ? "" : ` · faixa ${fmtMed(top.lo)}–${fmtMed(top.hi)}`)),
+      lista ? tile("Distritos", "0", `no paralelo seriam ${k}; ${sigla(topDis.p)} venceria ${fmtMed(topDis.dis)}`)
+        : tile("Distritos", `${k}`, `${sigla(topDis.p)} vence ${fmtMed(topDis.dis)} (${pct(topDis.dis / k, 0)})`),
       tile("Cadeiras de lista", `${fmtMed(casa - distritais)}`, sem ? `${fmtMed(sem)} distritos ficam sem eleito (regra 2023)` :
+        lista ? "lista fechada por estado, na ordem do voto nominal" :
         S.p.modelo === "paralelo" ? "metade proporcional, por estado" : "completam a proporção de cada partido"),
+      tile("Votos nos dois primeiros", pct(top2, 0), `média dos distritos · prefeituras de 60 a 170 mil eleitores: ${pct(S.cal.top2_observado, 0)}`),
       tile("Tamanho da Câmara", `${fmtMed(casa)}`, casa > 513 ? "cresce com excedentes e nivelamento" : "513, como hoje"),
     ].join("");
 
     desenhaHemiciclo();
 
     // tabela por partido com dot plot
-    const maxX = d3.max(linhas, l => Math.max(l.par, l.comp, l.real, l.hi)) || 1;
+    const maxX = d3.max(linhas, l => Math.max(l.par, l.comp, l.lst, l.real, l.hi)) || 1;
     const W = 320, H = 22;
     const x = d3.scaleLinear().domain([0, maxX]).range([6, W - 6]);
-    $("#th-delta").textContent = `Δ ${S.p.modelo === "paralelo" ? "paralelo" : "comp."}`;
+    $("#th-delta").textContent = `Δ ${{ paralelo: "paralelo", compensatorio: "comp.", lista: "lista" }[S.p.modelo]}`;
     const tb = d3.select("#t-partidos tbody").html("");
     for (const l of linhas) {
       const tr = tb.append("tr");
       tr.append("td").text(sigla(l.p));
       const svg = tr.append("td").append("svg").attr("width", W).attr("height", H).attr("viewBox", `0 0 ${W} ${H}`)
-        .attr("role", "img").attr("aria-label", `${sigla(l.p)}: paralelo ${fmtMed(l.par)}, compensatório ${fmtMed(l.comp)}, real ${l.real}`);
+        .attr("role", "img").attr("aria-label", `${sigla(l.p)}: paralelo ${fmtMed(l.par)}, compensatório ${fmtMed(l.comp)}, lista fechada ${fmtMed(l.lst)}, real ${l.real}`);
       svg.append("line").attr("class", "m-faixa").attr("x1", x(l.lo)).attr("x2", x(l.hi)).attr("y1", H / 2).attr("y2", H / 2);
       svg.append("line").attr("class", "m-real").attr("x1", x(l.real)).attr("x2", x(l.real)).attr("y1", 2).attr("y2", H - 2);
+      svg.append("rect").attr("class", "m-lista").attr("x", x(l.lst) - 4).attr("y", H / 2 - 4).attr("width", 8).attr("height", 8);
       svg.append("circle").attr("class", "m-comp").attr("cx", x(l.comp)).attr("cy", H / 2).attr("r", 4.5);
       svg.append("circle").attr("class", "m-par").attr("cx", x(l.par)).attr("cy", H / 2).attr("r", 4.5);
       const d = l.sel - l.real;
       tr.append("td").attr("class", "n").html(`${fmtMed(l.par)}`);
       tr.append("td").attr("class", "n").text(fmtMed(l.comp));
+      tr.append("td").attr("class", "n").text(fmtMed(l.lst));
       tr.append("td").attr("class", "n").text(l.real);
       tr.append("td").attr("class", "n").text((d > 0 ? "+" : d < 0 ? "−" : "") + fmtMed(Math.abs(d)));
       tr.append("td").attr("class", "n").text(fmtMed(l.dis));
@@ -307,8 +323,10 @@
       .attr("font-weight", 650).attr("fill", "var(--text-primary)").text(n);
     svg.append("text").attr("x", cx).attr("y", cy - 8).attr("text-anchor", "middle").attr("font-size", 12)
       .attr("fill", "var(--text-secondary)").text("cadeiras");
-    $("#h-hemi").textContent = `Câmara simulada — ${S.p.modelo === "paralelo" ? "paralelo 50/50" : "compensatório"}`;
-    $("#n-hemi").textContent = `Mapa ${R.rep + 1} de 50, o mais próximo da mediana. Bolinha cheia: eleito no distrito; anel: eleito pela lista. Cor: campo político do partido.`;
+    $("#h-hemi").textContent = `Câmara simulada — ${{ paralelo: "paralelo 50/50", compensatorio: "compensatório", lista: "só lista fechada" }[S.p.modelo]}`;
+    $("#n-hemi").textContent = S.p.modelo === "lista"
+      ? "Sem distritos: todo mundo sai de listas estaduais fechadas, na ordem da votação nominal de 2026. Cor: campo político do partido."
+      : `Mapa ${R.rep + 1} de 50, o mais próximo da mediana. Bolinha cheia: eleito no distrito; anel: eleito pela lista. Cor: campo político do partido.`;
     $("#leg-hemi").innerHTML = CAMPOS.map(c => `<span><span class="sw" style="background:${corCampo(c)}"></span>${ROT_CAMPO[c]}</span>`).join("") +
       `<span><span class="sw" style="background:var(--text-secondary)"></span>distrito</span><span><span class="sw anel" style="border-color:var(--text-secondary)"></span>lista</span>`;
   }
@@ -333,6 +351,9 @@
     });
     const td = d3.select("#t-uf-dist tbody").html("");
     const sem = new Set(r.semEleito);
+    $("#h-uf-dist").textContent = S.p.modelo === "lista" ? "Distritos deste mapa (só no distrital; a lista fechada não usa)" : "Distritos deste mapa";
+    const regs = S.mapas[uf] ? regioes(uf, k, m) : null;
+    if (!regs) carregaUF(uf).then(() => { if (S.ufRes === uf) desenhaUFRes(); });
     r.vencedores.forEach((v, j) => {
       const d = r.dist[j];
       const tr = td.append("tr");
@@ -342,6 +363,7 @@
       tr.append("td").attr("class", "n").text(pct(v.pct));
       tr.append("td").attr("class", "n").text(pct(v.margem));
       tr.append("td").text(siglaAgr(d.agr[d.segundo]));
+      tr.append("td").attr("class", "regiao").html(regs ? textoRegiao(regs[j], true) : "…");
     });
     const lista = r.eleitosLista.map(i => cs[i]).sort((a, b) => b[4] - a[4]);
     $("#lista-uf").textContent = lista.length ? lista.map(c => `${c[1]} (${sigla(c[2])})`).join(" · ") : "nenhum";
@@ -365,6 +387,50 @@
   }
   const B64 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_";
   const dec = (s) => Uint8Array.from(s, ch => B64.indexOf(ch));
+  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  // cidades e bairros de cada distrito de um mapa. Bairro = o do cadastro do local de votacao
+  // (TSE), so nos municipios quebrados em celulas
+  const cacheReg = {};
+  function regioes(uf, k, m) {
+    const chave = `${uf}|${k}|${m}`;
+    if (cacheReg[chave]) return cacheReg[chave];
+    const tij = S.mapas[uf].tij, a = dec(S.mapas[uf].mapas[k][m]);
+    if (!tij.munTot) {
+      tij.munTot = {};
+      tij.mun.forEach((mu, i) => { tij.munTot[mu] = (tij.munTot[mu] || 0) + tij.aptos[i]; });
+    }
+    const por = Array.from({ length: k }, () => ({ mun: new Map(), bai: new Map() }));
+    for (let i = 0; i < a.length; i++) {
+      const r = por[a[i]], mu = tij.mun[i], b = tij.bai[i];
+      r.mun.set(mu, (r.mun.get(mu) || 0) + tij.aptos[i]);
+      if (!r.bai.has(mu)) r.bai.set(mu, new Map());
+      const bm = r.bai.get(mu);
+      for (let q = 0; q < b.length; q += 2) bm.set(b[q], (bm.get(b[q]) || 0) + b[q + 1]);
+    }
+    const out = por.map(r => {
+      const muns = [...r.mun].sort((x, y) => y[1] - x[1])
+        .map(([mu, ap]) => ({ mu, ap, parte: ap < 0.98 * tij.munTot[mu], pctMun: ap / tij.munTot[mu] }));
+      const bairros = {};
+      for (const x of muns) if (x.parte && r.bai.get(x.mu).size)
+        bairros[x.mu] = [...r.bai.get(x.mu)].sort((p, q) => q[1] - p[1]).map(([b]) => tij.bairros[b]);
+      return { muns, bairros };
+    });
+    cacheReg[chave] = out;
+    return out;
+  }
+  function textoRegiao(rg, curto) {
+    const nM = curto ? 3 : 6, nB = curto ? 3 : 6;
+    const ms = rg.muns.slice(0, nM).map(x => esc(x.mu) + (x.parte ? ` <span class="faixa-txt">(${pct(x.pctMun, 0)} da cidade)</span>` : ""));
+    const resto = rg.muns.length - nM;
+    let s = ms.join(", ") + (resto > 0 ? ` e mais ${resto} ${resto === 1 ? "município" : "municípios"}` : "");
+    const partes = rg.muns.filter(x => rg.bairros[x.mu]).slice(0, curto ? 1 : 2);
+    for (const x of partes) {
+      const bs = rg.bairros[x.mu];
+      s += `<br>${curto ? "" : esc(x.mu) + ": "}${bs.slice(0, nB).map(esc).join(", ")}${bs.length > nB ? "…" : ""}`;
+    }
+    return s;
+  }
 
   function simulaUFTodos(uf) {
     const chave = JSON.stringify([uf, S.p, S.campoDe]);
@@ -507,10 +573,11 @@
     const t = d3.zoomTransform(svg.node());
     g.selectAll(".rotulos text").style("font-size", 11 / t.k + "px").style("stroke-width", 3 / t.k + "px");
 
+    const regs = regioes(uf, k, S.mapa);
     const htmlDist = (d) => {
       const v = venc[d], c = v.cand >= 0 ? cs[v.cand] : null, dd = r.dist[d];
       const l = dm.lula[d], f = dm.flavio[d];
-      return `<b>Distrito ${d + 1}</b><br>` +
+      return `<b>Distrito ${d + 1}</b><br><span class="regiao">${textoRegiao(regs[d], true)}</span><br>` +
         `<span class="m">Eleitorado</span> ${num(dm.aptos[d])} (${dm.aptos[d] >= mAp ? "+" : "−"}${pct(Math.abs(dm.aptos[d] / mAp - 1))})<br>` +
         `<span class="m">População</span> ${num(dm.pop[d])}<br>` +
         `<span class="m">2º turno</span> Lula ${pct(l / (l + f))} · Flávio ${pct(f / (l + f))}<br>` +
@@ -521,7 +588,8 @@
     tijs.on("mousemove", (ev, f) => {
       const d = a[f.properties.i];
       g.select(".realce").attr("d", path(formas[d]));
-      let extra = `<br><span class="m">${tij.mun[f.properties.i]}</span>`;
+      const bi = tij.bai[f.properties.i];
+      let extra = `<br><span class="m">Aqui: ${esc(tij.mun[f.properties.i])}${bi.length ? " · " + esc(tij.bairros[bi[0]]) : ""}</span>`;
       if (instavel) extra += `<br><span class="m">vencedor diferente do mais comum em ${pct(instavel[f.properties.i], 0)} dos mapas</span>`;
       mostraDica(ev, htmlDist(d) + extra);
     }).on("mouseleave", () => { g.select(".realce").attr("d", null); escondeDica(); });
@@ -539,7 +607,7 @@
       `Cidades grandes foram quebradas em células em volta dos locais de votação. Role para dar zoom; passe o mouse num distrito.`;
 
     desenhaDiferencas(uf, k, res);
-    desenhaTabelaDist(uf, r, dm, mAp);
+    desenhaTabelaDist(uf, r, dm, mAp, regs);
   }
 
   function desenhaDiferencas(uf, k, res) {
@@ -574,7 +642,7 @@
       `O traço preto é o mapa ${S.mapa + 1}. À direita, o mínimo e o máximo entre os 50 desenhos.`;
   }
 
-  function desenhaTabelaDist(uf, r, dm, mAp) {
+  function desenhaTabelaDist(uf, r, dm, mAp, regs) {
     const cs = S.base.uf[uf].cands;
     $("#h-tab-dist").textContent = `Distritos do mapa ${S.mapa + 1} — ${UF_NOME[uf]}`;
     const tb = d3.select("#t-dist tbody").html("");
@@ -592,14 +660,19 @@
       tr.append("td").html(c ? `${c[1]} <span class="faixa-txt">${sigla(c[2])}${sem.has(j) ? " · vago" : ""}</span>` : siglaAgr(v.agr));
       tr.append("td").attr("class", "n").text(pct(v.pct));
       tr.append("td").attr("class", "n").text(pct(v.margem));
+      tr.append("td").attr("class", "regiao").html(textoRegiao(regs[j], false));
     });
   }
 
   // ================================================================== METODO
   function desenhaMetodo() {
-    const b = S.betaInfo, c1 = b.desenho_coligacoes, c2 = b.desenho_partidos;
+    const c = S.cal, v = (x) => String(x).replace(".", ",");
     const ks = Object.values(S.base.ks);
     const kAtual = d3.sum(ks, x => x.atual), kSem = d3.sum(ks, x => x.sem_teto), kPuro = d3.sum(ks, x => x.puro);
+    const faixas = c.por_faixa.map(f => `<tr><td>${num(f.de)} a ${num(f.ate)}</td><td class="n">${num(f.cidades)}</td>` +
+      `<td class="n">${v(f.candidatos)}</td><td class="n">${pct(f.top2, 1)}</td></tr>`).join("");
+    const curva = c.curva.filter((x, i) => i % 2 === 0 || x.beta === c.beta_padrao)
+      .map(x => `<tr${x.beta === c.beta_padrao ? ' style="font-weight:600"' : ""}><td class="n">${v(x.beta)}</td><td class="n">${v(x.pi)}</td><td class="n">${v(x.erro_campo.toFixed(3))}</td></tr>`).join("");
     $("#metodo").innerHTML = `
 <h2>O que foi simulado</h2>
 <p>Votos de verdade, regras de mentira. A eleição de deputado federal de 4/10/2026 é recontada como se o eleitor
@@ -612,6 +685,10 @@ e o resto sai de listas estaduais.</p>
 e a lista só completa o que os distritos não deram. Na <b>regra alemã de 2023</b>, se um partido ganha mais distritos do que a sua cota,
 os distritos que ele venceu com o menor percentual ficam sem eleito, e a Câmara fica em 513. Na <b>regra antiga</b>, o partido fica com
 as cadeiras excedentes e os outros ganham cadeiras de nivelamento até a proporção bater, e a Câmara cresce.</li>
+<li><b>Só lista fechada</b>: sem distritos. Cada agremiação apresenta uma lista ordenada e o eleitor vota só no partido. A conta de cadeiras é a
+mesma de hoje (quociente eleitoral, quociente partidário, 80% do QE nas sobras), menos as duas cláusulas que dependem de voto nominal
+(10% e 20% do QE para o candidato), que deixam de existir. A ordem da lista é a votação nominal de 2026, então os nomes mudam pouco;
+o que muda é o número de cadeiras dos partidos que dependiam de um puxador.</li>
 </ul>
 <h2>Os quatro passos</h2>
 <p><b>1. Voto de lista.</b> É o total da agremiação no estado (votos nominais + legenda), exatamente a conta que define o quociente
@@ -619,26 +696,47 @@ partidário hoje. Federações (PT/PCdoB/PV, PSOL/Rede, PSDB/Cidadania, União/P
 como em 2026; o placar é aberto por partido pelo candidato eleito.</p>
 <p><b>2. Distritos.</b> Distritos contíguos, com eleitorado a ±10% da média do estado, sorteados pelo algoritmo ReCom
 (cadeia de Markov de árvores geradoras) a partir de um grafo de municípios. Município maior que meio distrito é quebrado em células
-em volta dos seus locais de votação. Cinquenta mapas por estado e por número de distritos; o resultado nacional é a mediana dos 50,
-e a faixa vai do 10º ao 90º percentil.</p>
+em volta dos seus locais de votação; os bairros listados em cada distrito são os do cadastro desses locais no TSE.
+Cinquenta mapas por estado e por número de distritos; o resultado nacional é a mediana dos 50, e a faixa vai do 10º ao 90º percentil.</p>
 <p><b>3. Quem concorre onde.</b> Cada agremiação tem um candidato por distrito, tirado dos seus candidatos reais de 2026 por
 emparelhamento guloso: os pares (candidato, distrito) são ordenados pelos votos do candidato naquele distrito, e cada candidato fica
 com um distrito só. Onde a agremiação não tem ninguém com base local, entra o mais votado dela no estado que ainda está livre.
 Há dupla candidatura: quem perde o distrito continua na lista, na ordem de votação nominal.</p>
-<p><b>4. Votos no distrito.</b> O candidato fica com os votos dele ali, com a legenda e com uma fração <b>α</b> dos votos que os
-colegas de agremiação (que não concorrem naquele distrito) tiveram lá. O resto, 1 − α, vai para as outras agremiações na proporção
-do voto delas no distrito. Com α = 1 o modelo é puramente partidário. Depois vem o <b>voto útil β</b>: quem ficou do 3º lugar
-para baixo e não lidera o próprio campo (esquerda, centro, direita) perde β dos votos para o mais bem colocado do campo.
-Ganha quem tiver mais votos.</p>
+<p><b>4. Votos no distrito</b>, em três etapas.</p>
+<ul>
+<li><b>Herança dos colegas (α e γ).</b> O candidato fica com os votos dele ali e com a legenda. Dos votos que cada colega de agremiação que
+não concorre naquele distrito teve lá, ele herda α × min(1, votos dele ÷ votos do colega)<sup>γ</sup>. Com γ = 0, todo colega passa a mesma
+fração α. Com γ &gt; 0, o eleitor de um puxador segue menos um candidato muito mais fraco que ele: se o candidato do distrito teve um quarto dos
+votos do puxador ali, com γ = 0,5 ele herda metade de α. O que não é herdado vai para as outras agremiações, na proporção do voto delas no distrito.</li>
+<li><b>Voto útil no campo (β).</b> Quem ficou do 3º lugar para baixo e não lidera o próprio campo (esquerda, centro, direita) perde β dos votos
+para o mais bem colocado do campo.</li>
+<li><b>Polarização (π).</b> Depois disso, todo mundo do 3º lugar para baixo, inclusive o líder de um campo que ficou para trás, perde π do que
+sobrou para um dos dois primeiros: o de campo mais próximo na linha esquerda–centro–direita. O eleitor de esquerda cujo candidato ficou em 3º
+vota no do centro para barrar a direita. Se os dois primeiros estão à mesma distância (o centro diante de esquerda × direita), o voto se
+divide na proporção deles.</li>
+</ul>
+<p>Ganha quem tiver mais votos.</p>
+<h2>A calibração com as prefeituras</h2>
+<p>Prefeito de cidade com menos de 200 mil eleitores é eleito em turno único, por maioria simples, como seria o deputado distrital.
+A concentração nos dois primeiros cai com o tamanho da cidade e com o número de candidatos (prefeito 2024):</p>
+<table class="tabela" style="max-width:520px"><thead><tr><th>Eleitores</th><th class="n">Cidades</th><th class="n">Candidatos (média)</th>
+<th class="n">Dois primeiros</th></tr></thead><tbody>${faixas}</tbody></table>
+<p>Um distrito teria uns 600 mil eleitores, mais que qualquer cidade de turno único. Por isso a calibração usa as ${num(c.amostra.cidades)}
+cidades de ${num(c.amostra.de)} a ${num(c.amostra.ate)} eleitores, onde os dois primeiros ficam com <b>${pct(c.top2_observado, 0)}</b>.
+O exercício: cada partido vira um "candidato" com o seu voto para vereador (sem coligação, como no simulador) e β e π precisam levar essa
+dispersão, em que os dois primeiros têm só ${pct(c.top2_sem_ajuste, 0)}, até a concentração real.</p>
+<p>A fatia dos dois primeiros sozinha não separa β de π: há uma curva de pares que a reproduzem (tabela). O desempate vem da votação por campo.
+β não muda quanto cada campo tem (só mexe dentro dele), e π muda. Entre os pares da curva, fica o que melhor acerta a votação de prefeito
+por campo: <b>β = ${v(c.beta_padrao)} e π = ${v(c.pi_padrao)}</b>. A curva é rasa (intervalo de 90% no bootstrap por cidade: β de
+${v(c.ic90_beta[0])} a ${v(c.ic90_beta[1])}, π de ${v(c.ic90_pi[0])} a ${v(c.ic90_pi[1])}), mas o placar quase não muda ao longo dela:
+o que pesa é a concentração total, e essa é bem medida.</p>
+<table class="tabela" style="max-width:360px"><thead><tr><th class="n">β</th><th class="n">π que dá ${pct(c.top2_observado, 0)}</th>
+<th class="n">Erro por campo</th></tr></thead><tbody>${curva}</tbody></table>
+<p>Ressalva: prefeitura é cargo executivo, com coligação montada antes, e pode concentrar mais que uma eleição de deputado. Em países com distrito de um eleito só e vários partidos, como o Reino Unido,
+a concentração nos dois primeiros costuma ser menor. Os seletores permitem testar o simulador com menos concentração.</p>
 <h2>As premissas que não são medidas</h2>
-<p><b>α = 0,7</b> é uma escolha: não existe dado brasileiro de voto em dois níveis para calibrá-la. O seletor vai de 0,5 a 1.</p>
-<p><b>β = ${String(b.beta_padrao).replace(".", ",")}</b>. A tentativa de calibrar o β com as eleições de prefeito de 2024 em turno único
-(municípios com menos de 200 mil eleitores) não deu um número limpo, por dois motivos.
-(a) Usando como base de cada candidato o voto para vereador da sua coligação (${num(c1.cidades)} cidades com 3 ou mais candidatos),
-o melhor β é ${String(c1.beta_hat).replace(".", ",")}: a coligação já concentra o voto, e a coordenação acontece entre os partidos, não entre os eleitores.
-(b) Sem coligação, que é como o simulador funciona, nem β = 1 chega à concentração real: os dois primeiros prefeitos levam
-${pct(c2.top2_observado, 0)} dos votos, e o modelo com β = 1 dá ${pct(c2.top2_previsto_por_beta["1.0"], 0)}.
-Sem estimativa limpa, ficou o padrão de 0,3. A tabela de campos também é uma premissa e pode ser editada abaixo.</p>
+<p><b>α = 0,7</b> e <b>γ = ${v(GAMA_PADRAO)}</b> são escolhas: não existe dado brasileiro de voto em dois níveis para calibrá-las.
+A tabela de campos também é uma premissa e pode ser editada abaixo.</p>
 <p><b>O voto é o de 2026, dado sob o sistema atual.</b> Num distrital de verdade, partidos fariam alianças, retirariam candidatos e
 fariam campanha de outro jeito, e o eleitor também mudaria. A simulação mostra o que <i>estes</i> votos dariam sob outras regras,
 não uma previsão de como seria uma eleição distrital.</p>
